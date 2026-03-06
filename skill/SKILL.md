@@ -8,7 +8,8 @@ description: >
   Use when: booting an autonomous agent wallet on any EVM chain, sending tokens, calling contracts,
   resolving agent identity, checking reputation, making x402 payment-gated API calls,
   bridging tokens cross-chain (Li.Fi), funding gas on destination chains (Gas.zip),
-  cross-chain transfers (Avalanche C↔X↔P), delegating stake, querying validators, signing messages.
+  cross-chain transfers (Avalanche C↔X↔P), delegating stake, querying validators, signing messages,
+  creating subnets, managing L1 validators, adding validators with BLS keys, querying node info.
   Don't use when: managing ENS (use moltbook scripts).
   Network: yes (EVM RPCs via Routescan + public fallbacks). Cost: gas fees per transaction.
 metadata:
@@ -185,6 +186,20 @@ AVALANCHE_NETWORK=base evalanche-mcp
 | `get_bridge_routes` | Get all bridge route options |
 | `bridge_tokens` | Bridge tokens between chains |
 | `fund_destination_gas` | Fund gas via Gas.zip |
+
+### Platform CLI (requires `platform-cli` binary — `go install github.com/ava-labs/platform-cli@latest`)
+| Tool | Description |
+|------|-------------|
+| `platform_cli_available` | Check if platform-cli is installed |
+| `subnet_create` | Create a new Avalanche subnet |
+| `subnet_convert_l1` | Convert subnet to L1 blockchain |
+| `subnet_transfer_ownership` | Transfer subnet ownership |
+| `add_validator` | Add validator with BLS keys to Primary Network |
+| `l1_register_validator` | Register a new L1 validator |
+| `l1_add_balance` | Add balance to L1 validator |
+| `l1_disable_validator` | Disable an L1 validator |
+| `node_info` | Get NodeID + BLS keys from running node |
+| `pchain_send` | Send AVAX on P-Chain (P→P) |
 
 ## Programmatic Usage
 

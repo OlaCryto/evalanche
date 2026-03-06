@@ -235,6 +235,52 @@ await agent.delegate('NodeID-...', '25', 30);
 
 > Avalanche dependencies (`@avalabs/core-wallets-sdk`) are lazy-loaded on first multi-VM call.
 
+### Platform CLI — Advanced P-Chain Ops (v0.6.0)
+
+For subnet management, L1 validators, and BLS staking, Evalanche wraps [ava-labs/platform-cli](https://github.com/ava-labs/platform-cli) as an optional subprocess.
+
+**Install the CLI:**
+```bash
+go install github.com/ava-labs/platform-cli@latest
+```
+
+**Usage:**
+```typescript
+const agent = new Evalanche({
+  privateKey: process.env.AGENT_PRIVATE_KEY,
+  network: 'avalanche',
+});
+
+// Get the platform CLI (auto-detects binary)
+const cli = await agent.platformCLI();
+
+// Check availability
+const available = await cli.isAvailable(); // true if binary found
+
+// Create a subnet
+const subnet = await cli.createSubnet();
+
+// Add a validator with BLS keys
+await cli.addValidator({
+  nodeId: 'NodeID-...',
+  stakeAvax: 2000,
+  blsPublicKey: '0x...',
+  blsPop: '0x...',
+});
+
+// Convert subnet to L1
+await cli.convertSubnetToL1({
+  subnetId: subnet.subnetId,
+  chainId: 'chain-id',
+  validators: 'https://node1:9650,https://node2:9650',
+});
+
+// Get node info (NodeID + BLS keys)
+const info = await cli.getNodeInfo('127.0.0.1:9650');
+```
+
+> The platform-cli binary is optional. All existing P-Chain functionality via AvalancheJS continues to work without it. The CLI adds subnet/L1/BLS capabilities that AvalancheJS doesn't support.
+
 ## ERC-8004 Integration
 
 On-chain agent identity on Avalanche C-Chain. Requires `identity` config:
@@ -297,6 +343,16 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `bridge_tokens` | Bridge tokens cross-chain |
 | `fund_destination_gas` | Fund gas via Gas.zip |
 | `switch_network` | Switch EVM network |
+| `platform_cli_available` | Check if platform-cli is installed |
+| `subnet_create` | Create a new subnet |
+| `subnet_convert_l1` | Convert subnet to L1 blockchain |
+| `subnet_transfer_ownership` | Transfer subnet ownership |
+| `add_validator` | Add validator with BLS keys |
+| `l1_register_validator` | Register L1 validator |
+| `l1_add_balance` | Add L1 validator balance |
+| `l1_disable_validator` | Disable L1 validator |
+| `node_info` | Get NodeID + BLS from running node |
+| `pchain_send` | Send AVAX on P-Chain |
 
 ### Environment Variables
 
@@ -343,6 +399,11 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 │  ┌────┴──────────────────────────────────────┐  │
 │  │  EVM (ethers v6) │ X-Chain │ P-Chain      │  │
 │  │  Any EVM chain   │ Avalanche-only         │  │
+│  └────┬──────────────────────────────────────┘  │
+│       │                                          │
+│  ┌────┴──────────────────────────────────────┐  │
+│  │  Platform CLI (optional subprocess)       │  │
+│  │  Subnets │ L1 Validators │ BLS Staking    │  │
 │  └───────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
@@ -358,7 +419,7 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 ### v0.3.0
 - Non-custodial keystore, `Evalanche.boot()`, OpenClaw secrets
 
-### v0.4.0 (current)
+### v0.4.0
 - Multi-EVM support (21+ chains: Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, etc.)
 - Routescan RPCs as preferred provider
 - Li.Fi cross-chain bridging
@@ -366,8 +427,19 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - Network switching
 - 17 MCP tools (7 new)
 
-### v0.5.0 (planned)
-- Subnet/L1 support
+### v0.5.0
+- Arena DEX swap module (buy/sell community tokens via bonding curve)
+- 4 new MCP tools (arena_buy, arena_sell, arena_token_info, arena_buy_cost)
+
+### v0.6.0 (current)
+- Platform CLI integration (wraps ava-labs/platform-cli as optional subprocess)
+- Subnet management (create, transfer ownership, convert to L1)
+- L1 validator operations (register, set-weight, add-balance, disable)
+- Enhanced staking with BLS keys + node endpoint auto-discovery
+- P-Chain direct send, chain creation, node info
+- 10 new MCP tools (27 total)
+
+### v0.7.0 (planned)
 - ICM (Interchain Messaging) integration
 - Agent-to-agent payment channels
 
