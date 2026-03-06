@@ -35,3 +35,16 @@
   - UUPS upgrade helper: `upgradeProxy(proxyAddress, newImplBytecode)`
 - **Priority:** LOW — cast works fine, just not SDK-native
 - **Status:** OPEN
+
+## Gap Resolved: Subnet/L1 Support
+- **Date:** 2026-03-06
+- **Context:** Needed subnet management, L1 validator ops, and BLS staking support.
+- **Solution:** Integrated ava-labs/platform-cli as optional subprocess (v0.6.0).
+- **What was added:**
+  - PlatformCLI wrapper class with auto-detection
+  - Subnet create/transfer-ownership/convert-to-L1
+  - L1 validator register/set-weight/add-balance/disable
+  - Add validator with BLS keys + node endpoint auto-discovery
+  - P-Chain direct send, chain creation, node info
+  - 10 new MCP tools, 34 new tests
+- **Status:** RESOLVED
