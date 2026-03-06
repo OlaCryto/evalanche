@@ -47,6 +47,20 @@ export type {
   MinStakeAmounts,
 } from './avalanche';
 
+// Platform CLI (optional subprocess wrapper for advanced P-Chain ops)
+export { PlatformCLI } from './avalanche/platform-cli';
+export type {
+  PlatformCLIResult,
+  SubnetCreateResult,
+  L1RegisterResult,
+  NodeInfoResult,
+  AddValidatorParams,
+  DelegateParams,
+  ConvertToL1Params,
+  PChainTransferParams,
+  CrossChainTransferParams,
+} from './avalanche/platform-cli';
+
 // Swap (v0.5.0)
 export { ArenaSwapClient, ARENA_TOKEN_MANAGER, ARENA_TOKEN } from './swap';
 export type { ArenaTokenInfo, ArenaSwapResult } from './swap';

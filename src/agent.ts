@@ -23,6 +23,7 @@ import type { GasZipParams } from './bridge/gaszip';
 // Avalanche multi-VM types only (actual imports are lazy to avoid loading
 // @avalabs/core-wallets-sdk at construction time — it has heavy native deps)
 import type { ChainAlias, TransferResult, MultiChainBalance, StakeInfo, ValidatorInfo, MinStakeAmounts } from './avalanche/types';
+import type { PlatformCLI as PlatformCLIType } from './avalanche/platform-cli';
 
 /** Configuration for the Evalanche agent */
 export interface EvalancheConfig {
@@ -67,6 +68,7 @@ export class Evalanche {
   private _pChain?: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _crossChain?: any;
+  private _platformCLI?: PlatformCLIType;
   private readonly _mnemonic?: string;
   private readonly _multiVM: boolean;
   private _multiVMInitialized = false;
@@ -466,6 +468,37 @@ export class Evalanche {
   async getMinStake(): Promise<MinStakeAmounts> {
     const pChain = await this.pChain();
     return pChain.getMinStake();
+  }
+
+  /**
+   * Get a PlatformCLI instance for advanced P-Chain operations
+   * (subnets, L1 validators, enhanced staking with BLS keys, node info).
+   *
+   * Requires the `platform-cli` Go binary to be installed:
+   *   go install github.com/ava-labs/platform-cli@latest
+   *
+   * The CLI instance is lazy-initialized and cached.
+   *
+   * @param opts - Optional overrides for binary path, key name, or RPC URL
+   * @returns PlatformCLI instance
+   */
+  async platformCLI(opts?: {
+    binaryPath?: string;
+    keyName?: string;
+    rpcUrl?: string;
+  }): Promise<PlatformCLIType> {
+    if (!this._platformCLI) {
+      const { PlatformCLI } = await import('./avalanche/platform-cli');
+      const network = typeof this._networkOption === 'string'
+        ? (this._networkOption === 'fuji' ? 'fuji' : 'mainnet')
+        : 'mainnet';
+      this._platformCLI = new PlatformCLI({
+        network,
+        privateKey: this.wallet.privateKey,
+        ...opts,
+      });
+    }
+    return this._platformCLI;
   }
 
   /**

@@ -2,7 +2,7 @@ import { Evalanche } from '../agent';
 import type { EvalancheConfig } from '../agent';
 import { IdentityResolver } from '../identity/resolver';
 import { ArenaSwapClient } from '../swap/arena';
-import { EvalancheError } from '../utils/errors';
+import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
 import { getNetworkConfig } from '../utils/networks';
 import { getAllChains } from '../utils/chains';
 import { NATIVE_TOKEN } from '../bridge/lifi';
@@ -287,6 +287,120 @@ const TOOLS: MCPTool[] = [
       required: ['tokenAddress', 'amount'],
     },
   },
+  // Platform CLI tools (v0.6.0) — require platform-cli binary
+  {
+    name: 'platform_cli_available',
+    description: 'Check if the platform-cli binary is installed and available',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'subnet_create',
+    description: 'Create a new Avalanche subnet (requires platform-cli binary)',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'subnet_convert_l1',
+    description: 'Convert a subnet to an L1 blockchain (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subnetId: { type: 'string', description: 'Subnet ID to convert' },
+        chainId: { type: 'string', description: 'Chain ID where validator manager lives' },
+        validators: { type: 'string', description: 'Comma-separated validator addresses (auto-fetches NodeID + BLS)' },
+        managerAddress: { type: 'string', description: 'Validator manager contract address (hex)' },
+        mockValidator: { type: 'boolean', description: 'Use mock validator for testing' },
+      },
+      required: ['subnetId', 'chainId'],
+    },
+  },
+  {
+    name: 'subnet_transfer_ownership',
+    description: 'Transfer ownership of a subnet (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        subnetId: { type: 'string', description: 'Subnet ID' },
+        newOwner: { type: 'string', description: 'New owner address' },
+      },
+      required: ['subnetId', 'newOwner'],
+    },
+  },
+  {
+    name: 'add_validator',
+    description: 'Add a validator to the Avalanche Primary Network with BLS keys (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'string', description: 'Node ID (e.g. NodeID-...)' },
+        stakeAvax: { type: 'number', description: 'Stake amount in AVAX (min 2000)' },
+        durationHours: { type: 'number', description: 'Duration in hours (min 336 = 14 days)' },
+        delegationFee: { type: 'number', description: 'Delegation fee (0.02 = 2%)' },
+        blsPublicKey: { type: 'string', description: 'BLS public key (hex)' },
+        blsPop: { type: 'string', description: 'BLS proof of possession (hex)' },
+        nodeEndpoint: { type: 'string', description: 'Node endpoint to auto-fetch BLS keys' },
+      },
+      required: ['nodeId', 'stakeAvax'],
+    },
+  },
+  {
+    name: 'l1_register_validator',
+    description: 'Register a new L1 validator (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        balanceAvax: { type: 'number', description: 'Initial balance in AVAX for continuous fees' },
+        pop: { type: 'string', description: 'BLS proof of possession (hex)' },
+        message: { type: 'string', description: 'Warp message authorizing the validator (hex)' },
+      },
+      required: ['balanceAvax', 'pop', 'message'],
+    },
+  },
+  {
+    name: 'l1_add_balance',
+    description: 'Add balance to an L1 validator (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        validationId: { type: 'string', description: 'Validation ID' },
+        balanceAvax: { type: 'number', description: 'Balance to add in AVAX' },
+      },
+      required: ['validationId', 'balanceAvax'],
+    },
+  },
+  {
+    name: 'l1_disable_validator',
+    description: 'Disable an L1 validator (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        validationId: { type: 'string', description: 'Validation ID to disable' },
+      },
+      required: ['validationId'],
+    },
+  },
+  {
+    name: 'node_info',
+    description: 'Get node info (NodeID + BLS keys) from a running avalanchego node (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ip: { type: 'string', description: 'Node IP address or endpoint' },
+      },
+      required: ['ip'],
+    },
+  },
+  {
+    name: 'pchain_send',
+    description: 'Send AVAX on P-Chain to another P-Chain address (requires platform-cli binary)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Destination P-Chain address' },
+        amountAvax: { type: 'number', description: 'Amount in AVAX' },
+      },
+      required: ['to', 'amountAvax'],
+    },
+  },
 ];
 
 /**
@@ -315,7 +429,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '0.5.0',
+              version: '0.6.0',
             },
           });
 
@@ -604,6 +718,108 @@ export class EvalancheMCPServer {
             parseUnits(args.amount as string, 18),
           );
           result = { costArena: formatUnits(cost, 18), costWei: cost.toString() };
+          break;
+        }
+
+        // Platform CLI tools (v0.6.0)
+        case 'platform_cli_available': {
+          const cli = await this.agent.platformCLI();
+          const available = await cli.isAvailable();
+          if (available) {
+            const version = await cli.getVersion();
+            result = { available: true, version };
+          } else {
+            result = { available: false, install: 'go install github.com/ava-labs/platform-cli@latest' };
+          }
+          break;
+        }
+
+        case 'subnet_create': {
+          const cli = await this.agent.platformCLI();
+          const subnetResult = await cli.createSubnet();
+          result = subnetResult;
+          break;
+        }
+
+        case 'subnet_convert_l1': {
+          const cli = await this.agent.platformCLI();
+          const convertResult = await cli.convertSubnetToL1({
+            subnetId: args.subnetId as string,
+            chainId: args.chainId as string,
+            validators: args.validators as string | undefined,
+            managerAddress: args.managerAddress as string | undefined,
+            mockValidator: args.mockValidator as boolean | undefined,
+          });
+          result = { txId: convertResult.txId, output: convertResult.stdout };
+          break;
+        }
+
+        case 'subnet_transfer_ownership': {
+          const cli = await this.agent.platformCLI();
+          const ownerResult = await cli.transferSubnetOwnership(
+            args.subnetId as string,
+            args.newOwner as string,
+          );
+          result = { txId: ownerResult.txId, output: ownerResult.stdout };
+          break;
+        }
+
+        case 'add_validator': {
+          const cli = await this.agent.platformCLI();
+          const valResult = await cli.addValidator({
+            nodeId: args.nodeId as string,
+            stakeAvax: args.stakeAvax as number,
+            durationHours: args.durationHours as number | undefined,
+            delegationFee: args.delegationFee as number | undefined,
+            blsPublicKey: args.blsPublicKey as string | undefined,
+            blsPop: args.blsPop as string | undefined,
+            nodeEndpoint: args.nodeEndpoint as string | undefined,
+          });
+          result = { txId: valResult.txId, output: valResult.stdout };
+          break;
+        }
+
+        case 'l1_register_validator': {
+          const cli = await this.agent.platformCLI();
+          const regResult = await cli.registerL1Validator(
+            args.balanceAvax as number,
+            args.pop as string,
+            args.message as string,
+          );
+          result = regResult;
+          break;
+        }
+
+        case 'l1_add_balance': {
+          const cli = await this.agent.platformCLI();
+          const balResult = await cli.addL1ValidatorBalance(
+            args.validationId as string,
+            args.balanceAvax as number,
+          );
+          result = { txId: balResult.txId, output: balResult.stdout };
+          break;
+        }
+
+        case 'l1_disable_validator': {
+          const cli = await this.agent.platformCLI();
+          const disableResult = await cli.disableL1Validator(args.validationId as string);
+          result = { txId: disableResult.txId, output: disableResult.stdout };
+          break;
+        }
+
+        case 'node_info': {
+          const cli = await this.agent.platformCLI();
+          result = await cli.getNodeInfo(args.ip as string);
+          break;
+        }
+
+        case 'pchain_send': {
+          const cli = await this.agent.platformCLI();
+          const sendResult = await cli.sendOnPChain({
+            to: args.to as string,
+            amountAvax: args.amountAvax as number,
+          });
+          result = { txId: sendResult.txId, output: sendResult.stdout };
           break;
         }
 

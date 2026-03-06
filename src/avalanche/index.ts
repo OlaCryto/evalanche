@@ -5,6 +5,18 @@ export type { AvalancheSigner } from './signer';
 export { XChainOperations } from './xchain';
 export { PChainOperations } from './pchain';
 export { CrossChainTransfer } from './crosschain';
+export { PlatformCLI } from './platform-cli';
+export type {
+  PlatformCLIResult,
+  SubnetCreateResult,
+  L1RegisterResult,
+  NodeInfoResult,
+  AddValidatorParams,
+  DelegateParams,
+  ConvertToL1Params,
+  PChainTransferParams,
+  CrossChainTransferParams,
+} from './platform-cli';
 export type {
   ChainAlias,
   TransferResult,

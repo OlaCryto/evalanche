@@ -1,6 +1,6 @@
 {
   "name": "evalanche",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), and cross-chain bridging (Li.Fi + Gas.zip)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
