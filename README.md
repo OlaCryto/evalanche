@@ -1,6 +1,6 @@
 # Evalanche
 
-**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), and cross-chain bridging (Li.Fi + Gas.zip)**
+**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), cross-chain bridging (Li.Fi + Gas.zip), and perpetual futures (dYdX v4)**
 
 Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, payment capabilities, and cross-chain bridging. No browser, no popups, no human in the loop.
 
@@ -235,6 +235,40 @@ await agent.delegate('NodeID-...', '25', 30);
 
 > Avalanche dependencies (`@avalabs/core-wallets-sdk`) are lazy-loaded on first multi-VM call.
 
+### dYdX v4 Perpetuals (v0.7.0)
+
+```typescript
+const agent = new Evalanche({ mnemonic: '...', network: 'avalanche' });
+
+// Check if a market exists across all venues
+const match = await agent.findPerpMarket('AKT-USD');
+// → { venue: 'dydx', market: { ticker: 'AKT-USD', oraclePrice: '0.39', maxLeverage: 10, ... } }
+
+// Get dYdX client directly
+const dydx = await agent.dydx();
+
+// List markets
+const markets = await dydx.getMarkets();
+
+// Place a market order
+const orderId = await dydx.placeMarketOrder({
+  market: 'AKT-USD',
+  side: 'BUY',
+  size: '100',
+});
+
+// Check positions
+const positions = await dydx.getPositions();
+
+// Close a position
+await dydx.closePosition('AKT-USD');
+
+// Check balance
+const balance = await dydx.getBalance(); // USDC equity
+```
+
+> **Note:** dYdX requires a mnemonic (not just a private key) because it derives Cosmos keys from BIP-39.
+
 ### Platform CLI — Advanced P-Chain Ops (v0.6.0)
 
 For subnet management, L1 validators, and BLS staking, Evalanche wraps [ava-labs/platform-cli](https://github.com/ava-labs/platform-cli) as an optional subprocess.
@@ -431,7 +465,7 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - Arena DEX swap module (buy/sell community tokens via bonding curve)
 - 4 new MCP tools (arena_buy, arena_sell, arena_token_info, arena_buy_cost)
 
-### v0.6.0 (current)
+### v0.6.0
 - Platform CLI integration (wraps ava-labs/platform-cli as optional subprocess)
 - Subnet management (create, transfer ownership, convert to L1)
 - L1 validator operations (register, set-weight, add-balance, disable)
@@ -439,9 +473,18 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - P-Chain direct send, chain creation, node info
 - 10 new MCP tools (27 total)
 
-### v0.7.0 (planned)
+### v0.7.0 (current)
+- **dYdX v4 perpetual futures** — trade 100+ perp markets via Cosmos-based dYdX chain
+- `DydxClient` wrapping `@dydxprotocol/v4-client-js` (wallet derived from same mnemonic)
+- `PerpVenue` interface — extensible for adding Hyperliquid, Vertex, etc.
+- Market/limit orders, positions, balance, deposit/withdraw
+- `findPerpMarket(ticker)` — search across all connected perp venues
+- 10 new MCP tools (37 total), 164 tests
+
+### v0.8.0 (planned)
 - ICM (Interchain Messaging) integration
 - Agent-to-agent payment channels
+- Hyperliquid PerpVenue implementation
 
 ## License
 

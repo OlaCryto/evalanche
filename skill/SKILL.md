@@ -2,16 +2,17 @@
 name: evalanche
 description: >
   Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402),
-  cross-chain bridging (Li.Fi), and destination gas funding (Gas.zip).
+  cross-chain bridging (Li.Fi), destination gas funding (Gas.zip), and perpetual futures trading (dYdX v4).
   Supports 21+ EVM chains: Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and more.
   Agents generate and manage their own keys — no human input required.
   Use when: booting an autonomous agent wallet on any EVM chain, sending tokens, calling contracts,
   resolving agent identity, checking reputation, making x402 payment-gated API calls,
   bridging tokens cross-chain (Li.Fi), funding gas on destination chains (Gas.zip),
   cross-chain transfers (Avalanche C↔X↔P), delegating stake, querying validators, signing messages,
-  creating subnets, managing L1 validators, adding validators with BLS keys, querying node info.
+  creating subnets, managing L1 validators, adding validators with BLS keys, querying node info,
+  trading perpetual futures on dYdX v4 (100+ markets), searching for perp markets across venues.
   Don't use when: managing ENS (use moltbook scripts).
-  Network: yes (EVM RPCs via Routescan + public fallbacks). Cost: gas fees per transaction.
+  Network: yes (EVM RPCs via Routescan + public fallbacks, dYdX Cosmos chain). Cost: gas fees per transaction.
 metadata:
   {
     "openclaw":
@@ -200,6 +201,20 @@ AVALANCHE_NETWORK=base evalanche-mcp
 | `l1_disable_validator` | Disable an L1 validator |
 | `node_info` | Get NodeID + BLS keys from running node |
 | `pchain_send` | Send AVAX on P-Chain (P→P) |
+
+### dYdX v4 Perpetuals (v0.7.0 — requires mnemonic)
+| Tool | Description |
+|------|-------------|
+| `dydx_get_markets` | List all dYdX perpetual markets with prices/leverage |
+| `dydx_has_market` | Check if a specific perp market exists (e.g. AKT-USD) |
+| `dydx_get_balance` | Get USDC equity on dYdX subaccount |
+| `dydx_get_positions` | Get all open perpetual positions |
+| `dydx_place_market_order` | Place a market order (BUY/SELL) |
+| `dydx_place_limit_order` | Place a limit order |
+| `dydx_cancel_order` | Cancel an open order |
+| `dydx_close_position` | Close position with reduce-only market order |
+| `dydx_get_orders` | List orders (optionally filter by status) |
+| `find_perp_market` | Search for a market across all connected perp venues |
 
 ## Programmatic Usage
 
