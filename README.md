@@ -1,8 +1,8 @@
 # Evalanche
 
-**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), cross-chain bridging (Li.Fi + Gas.zip), and perpetual futures (dYdX v4)**
+**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), and perpetual futures (dYdX v4)**
 
-Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, payment capabilities, and cross-chain bridging. No browser, no popups, no human in the loop.
+Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), and one-click DeFi operations. No browser, no popups, no human in the loop.
 
 ## Install
 
@@ -104,40 +104,88 @@ Routescan RPCs are used as the primary RPC where available, with public fallback
 
 ## Cross-Chain Bridging
 
-### Li.Fi — Token Bridging
+### Li.Fi — Cross-Chain Liquidity (v0.8.0)
 
-Bridge tokens between any supported chains using Li.Fi's aggregated bridge/DEX routes.
+Full Li.Fi integration: bridging, same-chain DEX aggregation, DeFi Composer, token/chain discovery, gas pricing, and transfer status tracking.
 
 ```typescript
 const agent = new Evalanche({ privateKey: '0x...', network: 'ethereum' });
 
-// Get a bridge quote
-const quote = await agent.getBridgeQuote({
+// Bridge tokens cross-chain
+const result = await agent.bridgeTokens({
   fromChainId: 1,       // Ethereum
   toChainId: 8453,      // Base
-  fromToken: '0x0000000000000000000000000000000000000000', // Native ETH
-  toToken: '0x0000000000000000000000000000000000000000',   // Native ETH
-  fromAmount: '0.1',
-  fromAddress: agent.address,
-});
-
-console.log(quote.toAmount);       // Expected output
-console.log(quote.estimatedTime);  // Seconds
-console.log(quote.tool);           // e.g. 'across', 'stargate'
-
-// Execute the bridge
-const result = await agent.bridgeTokens({
-  fromChainId: 1,
-  toChainId: 8453,
   fromToken: '0x0000000000000000000000000000000000000000',
   toToken: '0x0000000000000000000000000000000000000000',
   fromAmount: '0.1',
   fromAddress: agent.address,
 });
-console.log(result.txHash);
+
+// Track transfer status (poll until DONE or FAILED)
+const status = await agent.checkBridgeStatus({
+  txHash: result.txHash,
+  fromChainId: 1,
+  toChainId: 8453,
+});
+// → { status: 'DONE', substatus: 'COMPLETED', receiving: { txHash, amount, token, chainId } }
+
+// Same-chain DEX swap (31+ DEX aggregators on any chain)
+const swapResult = await agent.swap({
+  fromChainId: 8453,    // Base
+  toChainId: 8453,      // Same chain = DEX swap
+  fromToken: '0x0000000000000000000000000000000000000000', // ETH
+  toToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // USDC on Base
+  fromAmount: '0.05',
+  fromAddress: agent.address,
+});
+
+// Token discovery — prices, decimals, symbols
+const tokens = await agent.getTokens([8453, 42161]); // Base + Arbitrum tokens
+const usdc = await agent.getToken(8453, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
+// → { symbol: 'USDC', decimals: 6, priceUSD: '1.00', ... }
+
+// Chain and tool discovery
+const chains = await agent.getLiFiChains(['EVM']);
+const tools = await agent.getLiFiTools();
+// → { bridges: ['across', 'stargate', ...], exchanges: ['1inch', 'paraswap', ...] }
+
+// Gas prices across chains
+const gas = await agent.getGasSuggestion(8453); // Base gas
+// → { standard: '0.001', fast: '0.002', slow: '0.0005' }
+
+// Connection discovery — what transfer paths exist
+const connections = await agent.getLiFiConnections({
+  fromChainId: 1,
+  toChainId: 8453,
+});
 
 // Get multiple route options
-const routes = await agent.getBridgeRoutes({ /* same params */ });
+const routes = await agent.getBridgeRoutes({
+  fromChainId: 1, toChainId: 8453,
+  fromToken: '0x0000000000000000000000000000000000000000',
+  toToken: '0x0000000000000000000000000000000000000000',
+  fromAmount: '0.1', fromAddress: agent.address,
+});
+```
+
+#### DeFi Composer (Zaps)
+
+One-transaction cross-chain DeFi operations. Bridge + deposit into a vault/staking/lending protocol in a single tx.
+
+```typescript
+// Bridge ETH from Ethereum → deposit into Morpho vault on Base
+// Just set toToken to the vault token address!
+const composerResult = await agent.bridgeTokens({
+  fromChainId: 1,       // Ethereum
+  toChainId: 8453,      // Base
+  fromToken: '0x0000000000000000000000000000000000000000', // ETH
+  toToken: '0x7BfA7C4f149E7415b73bdeDfe609237e29CBF34A',  // Morpho vault token
+  fromAmount: '0.1',
+  fromAddress: agent.address,
+});
+
+// Supported protocols: Morpho, Aave V3, Euler, Pendle, Lido wstETH,
+// EtherFi, Ethena, Maple, Seamless, Felix, HyperLend, and more.
 ```
 
 ### Gas.zip — Destination Gas Funding
@@ -205,7 +253,7 @@ Create an agent with existing keys.
 | `agent.payAndFetch(url, options)` | x402 payment-gated HTTP |
 | `agent.submitFeedback(feedback)` | Submit reputation feedback |
 
-### Bridge Methods (v0.4.0)
+### Bridge & Cross-Chain (v0.4.0+)
 
 | Method | Description |
 |--------|-------------|
@@ -216,6 +264,21 @@ Create an agent with existing keys.
 | `agent.switchNetwork(network)` | Switch to different chain |
 | `agent.getChainInfo()` | Get current chain info |
 | `Evalanche.getSupportedChains()` | List all supported chains |
+
+### Li.Fi Liquidity SDK (v0.8.0)
+
+| Method | Description |
+|--------|-------------|
+| `agent.checkBridgeStatus(params)` | Poll cross-chain transfer status (PENDING/DONE/FAILED) |
+| `agent.getSwapQuote(params)` | Get same-chain DEX swap quote |
+| `agent.swap(params)` | Execute same-chain DEX swap (31+ aggregators) |
+| `agent.getTokens(chainIds)` | List tokens with prices on specified chains |
+| `agent.getToken(chainId, address)` | Get specific token info (symbol, decimals, price) |
+| `agent.getLiFiChains(chainTypes?)` | List all Li.Fi supported chains |
+| `agent.getLiFiTools()` | List available bridges and DEX aggregators |
+| `agent.getGasPrices()` | Get gas prices across all chains |
+| `agent.getGasSuggestion(chainId)` | Get gas price suggestion for a chain |
+| `agent.getLiFiConnections(params)` | Discover possible transfer paths between chains |
 
 ### Avalanche Multi-VM (X-Chain, P-Chain)
 
@@ -387,6 +450,31 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `l1_disable_validator` | Disable L1 validator |
 | `node_info` | Get NodeID + BLS from running node |
 | `pchain_send` | Send AVAX on P-Chain |
+| `arena_buy` | Buy Arena community tokens |
+| `arena_sell` | Sell Arena community tokens |
+| `arena_token_info` | Get Arena token info |
+| `arena_buy_cost` | Calculate Arena buy cost |
+| `dydx_get_markets` | List dYdX perpetual markets |
+| `dydx_has_market` | Check if perp market exists |
+| `dydx_get_balance` | Get dYdX USDC balance |
+| `dydx_get_positions` | Get open perp positions |
+| `dydx_place_market_order` | Place dYdX market order |
+| `dydx_place_limit_order` | Place dYdX limit order |
+| `dydx_cancel_order` | Cancel dYdX order |
+| `dydx_close_position` | Close perp position |
+| `dydx_get_orders` | List dYdX orders |
+| `find_perp_market` | Search perp markets across venues |
+| `check_bridge_status` | Poll cross-chain transfer status |
+| `lifi_swap_quote` | Get same-chain DEX swap quote |
+| `lifi_swap` | Execute same-chain DEX swap |
+| `lifi_get_tokens` | List tokens on specified chains |
+| `lifi_get_token` | Get token info (symbol, price, decimals) |
+| `lifi_get_chains` | List all Li.Fi supported chains |
+| `lifi_get_tools` | List available bridges and DEXs |
+| `lifi_gas_prices` | Get gas prices across all chains |
+| `lifi_gas_suggestion` | Get gas suggestion for a chain |
+| `lifi_get_connections` | Discover transfer paths between chains |
+| `lifi_compose` | Cross-chain DeFi Composer (bridge + vault/stake/lend) |
 
 ### Environment Variables
 
@@ -473,7 +561,7 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - P-Chain direct send, chain creation, node info
 - 10 new MCP tools (27 total)
 
-### v0.7.0 (current)
+### v0.7.0
 - **dYdX v4 perpetual futures** — trade 100+ perp markets via Cosmos-based dYdX chain
 - `DydxClient` wrapping `@dydxprotocol/v4-client-js` (wallet derived from same mnemonic)
 - `PerpVenue` interface — extensible for adding Hyperliquid, Vertex, etc.
@@ -481,7 +569,19 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - `findPerpMarket(ticker)` — search across all connected perp venues
 - 10 new MCP tools (37 total), 164 tests
 
-### v0.8.0 (planned)
+### v0.8.0 (current)
+- **Full Li.Fi cross-chain liquidity SDK** — expanded from bridge-only to complete integration
+- Same-chain DEX swaps via Li.Fi (31+ DEX aggregators on any chain)
+- Transfer status tracking (poll PENDING/DONE/FAILED after bridge tx)
+- Token discovery (list/lookup tokens with prices across all chains)
+- Chain discovery (all Li.Fi supported chains)
+- Bridge/DEX tool listing (available bridges and exchanges)
+- Gas prices and suggestions per chain
+- Connection discovery (possible transfer paths between chains)
+- **DeFi Composer/Zaps** — one-tx cross-chain DeFi (bridge + deposit into Morpho/Aave V3/Euler/Pendle/Lido/EtherFi/etc.)
+- 11 new MCP tools (52 total), 180 tests
+
+### v0.9.0 (planned)
 - ICM (Interchain Messaging) integration
 - Agent-to-agent payment channels
 - Hyperliquid PerpVenue implementation

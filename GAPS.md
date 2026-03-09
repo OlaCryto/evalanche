@@ -60,3 +60,15 @@
   - 10 new MCP tools for dYdX markets, balances, orders, and positions
   - Unit tests for dYdX client/types and MCP tool coverage
 - **Status:** RESOLVED
+
+## Gap Resolved: Full Li.Fi Cross-Chain Liquidity SDK
+- **Date:** 2026-03-09
+- **Context:** Li.Fi integration was bridge-only. Needed DEX swaps, status tracking, token discovery, gas pricing, DeFi Composer.
+- **Solution:** Expanded Li.Fi integration in Evalanche v0.8.0 based on Li.Fi's llms.txt documentation.
+- **What was added:**
+  - 9 new LiFiClient methods (checkTransferStatus, getSwapQuote, getTokens, getToken, getChains, getTools, getGasPrices, getGasSuggestion, getConnections)
+  - Same-chain DEX swaps via Li.Fi (31+ aggregators on any chain)
+  - DeFi Composer support (one-tx cross-chain DeFi: Morpho, Aave V3, Euler, Pendle, Lido, EtherFi, etc.)
+  - Transfer status tracking (PENDING/DONE/FAILED with substatus)
+  - 11 new MCP tools (52 total), 180 tests
+- **Status:** RESOLVED
