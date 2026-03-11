@@ -168,6 +168,10 @@ export interface Job {
   result?: string;
   /** Payment transaction hash */
   paymentTxHash?: string;
+  /** Escrow deposit transaction hash */
+  escrowTxHash?: string;
+  /** Escrow contract address */
+  escrowAddress?: string;
   /** Reputation score given by client (0-100) */
   reputationScore?: number;
   /** Unix timestamp (ms) when created */

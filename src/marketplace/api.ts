@@ -26,6 +26,7 @@ import type {
   MarketplaceSearchQuery,
   ApiResponse,
 } from './types';
+import type { EscrowClient } from '../economy/escrow';
 
 // ── Rate Limiter ──
 
@@ -212,7 +213,7 @@ function handleSearch(_req: IncomingMessage, res: ServerResponse, db: Marketplac
   }, cors);
 }
 
-async function handleHire(req: AuthenticatedRequest, res: ServerResponse, db: MarketplaceDB, serviceId: string, cors: string): Promise<void> {
+async function handleHire(req: AuthenticatedRequest, res: ServerResponse, db: MarketplaceDB, serviceId: string, cors: string, escrow: EscrowClient | null): Promise<void> {
   const body = await parseBody(req) as unknown as HireInput;
 
   if (!body.taskInput || !body.maxPrice || !body.chainId) {
@@ -243,13 +244,37 @@ async function handleHire(req: AuthenticatedRequest, res: ServerResponse, db: Ma
     chainId: body.chainId,
   });
 
+  // If escrow is configured, deposit funds on-chain
+  let escrowTxHash: string | undefined;
+  let escrowAddress: string | undefined;
+  if (escrow) {
+    try {
+      const agent = db.getAgent(service.agentId);
+      if (agent) {
+        const { formatEther } = await import('ethers');
+        const amountEth = formatEther(BigInt(service.pricePerCall));
+        const result = await escrow.deposit(jobId, agent.walletAddress, amountEth);
+        escrowTxHash = result.txHash;
+        escrowAddress = escrow.address;
+        db.updateJob(jobId, { escrowTxHash, escrowAddress } as any);
+      }
+    } catch (error) {
+      // Escrow deposit failed — job still created but without on-chain escrow
+      console.error(`Escrow deposit failed for job ${jobId}:`, error);
+    }
+  }
+
   jsonResponse(res, 201, {
     success: true,
     data: {
       jobId,
       agreedPrice: service.pricePerCall,
       agentId: service.agentId,
-      message: 'Job created. The agent will pick it up shortly.',
+      escrowTxHash,
+      escrowAddress,
+      message: escrowTxHash
+        ? 'Job created with on-chain escrow. Funds are locked until completion.'
+        : 'Job created. The agent will pick it up shortly.',
     },
   }, cors);
 }
@@ -268,7 +293,7 @@ function handleGetJob(req: AuthenticatedRequest, res: ServerResponse, db: Market
   jsonResponse(res, 200, { success: true, data: job }, cors);
 }
 
-async function handleUpdateJob(req: AuthenticatedRequest, res: ServerResponse, db: MarketplaceDB, jobId: string, cors: string): Promise<void> {
+async function handleUpdateJob(req: AuthenticatedRequest, res: ServerResponse, db: MarketplaceDB, jobId: string, cors: string, escrow: EscrowClient | null): Promise<void> {
   const job = db.getJob(jobId);
   if (!job) {
     return jsonResponse(res, 404, { success: false, error: 'Job not found' }, cors);
@@ -299,6 +324,28 @@ async function handleUpdateJob(req: AuthenticatedRequest, res: ServerResponse, d
       }
       updates.reputationScore = score;
     }
+
+    // Client marks completed → release escrow funds to agent
+    if (body.status === 'completed' && escrow && job.escrowTxHash) {
+      try {
+        const result = await escrow.complete(jobId);
+        updates.paymentTxHash = result.txHash;
+        updates.status = 'completed';
+      } catch (error) {
+        console.error(`Escrow release failed for job ${jobId}:`, error);
+        return jsonResponse(res, 500, { success: false, error: 'Escrow release failed' }, cors);
+      }
+    }
+
+    // Client disputes → lock escrow
+    if (body.status === 'disputed' && escrow && job.escrowTxHash) {
+      try {
+        await escrow.dispute(jobId);
+        updates.status = 'disputed';
+      } catch (error) {
+        console.error(`Escrow dispute failed for job ${jobId}:`, error);
+      }
+    }
   }
 
   if (Object.keys(updates).length === 0) {
@@ -327,10 +374,13 @@ export interface MarketplaceServerOptions {
   corsOrigin?: string;
   /** Max requests per IP per minute (default 60, 0 = disabled) */
   rateLimit?: number;
+  /** Optional escrow client for on-chain settlement */
+  escrow?: EscrowClient;
 }
 
 export class MarketplaceServer {
   readonly db: MarketplaceDB;
+  readonly escrow: EscrowClient | null;
   private server: Server | null = null;
   private port: number;
   private corsOrigin: string;
@@ -344,6 +394,7 @@ export class MarketplaceServer {
     this.corsOrigin = options.corsOrigin ?? '*';
     const limit = options.rateLimit ?? 60;
     this.rateLimiter = limit > 0 ? new RateLimiter(limit) : null;
+    this.escrow = options.escrow ?? null;
   }
 
   /** Start listening */
@@ -473,7 +524,7 @@ export class MarketplaceServer {
       // POST /services/:id/hire
       if (method === 'POST' && segments[0] === 'services' && segments[2] === 'hire') {
         if (!authenticate(req, res, this.db)) return;
-        await handleHire(req, res, this.db, segments[1], this.corsOrigin);
+        await handleHire(req, res, this.db, segments[1], this.corsOrigin, this.escrow);
         this._log(method, url, res.statusCode, Date.now() - start);
         return;
       }
@@ -489,7 +540,7 @@ export class MarketplaceServer {
       // PATCH /jobs/:id
       if (method === 'PATCH' && segments[0] === 'jobs' && segments[1]) {
         if (!authenticate(req, res, this.db)) return;
-        await handleUpdateJob(req, res, this.db, segments[1], this.corsOrigin);
+        await handleUpdateJob(req, res, this.db, segments[1], this.corsOrigin, this.escrow);
         this._log(method, url, res.statusCode, Date.now() - start);
         return;
       }

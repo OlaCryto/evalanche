@@ -83,6 +83,10 @@ export class MarketplaceDB {
       CREATE INDEX IF NOT EXISTS idx_jobs_agent ON jobs(agent_id);
       CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
     `);
+
+    // Add escrow columns (safe to run on existing DBs — ignores if already present)
+    try { this.db.exec('ALTER TABLE jobs ADD COLUMN escrow_tx_hash TEXT'); } catch { /* column exists */ }
+    try { this.db.exec('ALTER TABLE jobs ADD COLUMN escrow_address TEXT'); } catch { /* column exists */ }
   }
 
   // ── Agent Operations ──
@@ -475,6 +479,8 @@ export class MarketplaceDB {
       status: row.status as JobStatus,
       result: row.result as string | undefined,
       paymentTxHash: row.payment_tx_hash as string | undefined,
+      escrowTxHash: row.escrow_tx_hash as string | undefined,
+      escrowAddress: row.escrow_address as string | undefined,
       reputationScore: row.reputation_score as number | undefined,
       createdAt: row.created_at as number,
       completedAt: row.completed_at as number | undefined,

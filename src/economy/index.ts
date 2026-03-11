@@ -42,6 +42,10 @@ export type { Proposal, ProposalStatus } from './negotiation';
 // Settlement
 export { SettlementClient } from './settlement';
 
+// Escrow
+export { EscrowClient } from './escrow';
+export type { EscrowInfo, EscrowStatus, EscrowDepositResult, EscrowTxResult } from './escrow';
+
 // Memory
 export { AgentMemory } from './memory';
 export type {
