@@ -513,8 +513,9 @@ footer{
     <a href="#how-it-works" class="fade-in delay-1">Protocol</a>
     <a href="#features" class="fade-in delay-2">Features</a>
     <a href="#code" class="fade-in delay-3">Developers</a>
-    <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="fade-in delay-4">GitHub</a>
-    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="nav-cta fade-in delay-5">Get Started</a>
+    <a href="https://evalanche-production.up.railway.app/health" target="_blank" class="fade-in delay-4">Marketplace</a>
+    <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="fade-in delay-5">GitHub</a>
+    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="nav-cta fade-in delay-6">Get Started</a>
   </div>
 </nav>
 
@@ -692,7 +693,7 @@ footer{
         <div class="stat-label">EVM Chains</div>
       </div>
       <div class="stat">
-        <div class="stat-value">325</div>
+        <div class="stat-value">370</div>
         <div class="stat-label">Tests Passing</div>
       </div>
       <div class="stat">
@@ -716,7 +717,7 @@ footer{
 
 <!-- Footer -->
 <footer>
-  <div class="footer-left">&copy; 2026 Evalanche. MIT License.</div>
+  <div class="footer-left">&copy; 2026 Evalanche. MIT License. &nbsp;<span id="live-status" style="font-size:11px;color:var(--text-muted)">&#9679; Checking API...</span></div>
   <div class="footer-links">
     <a href="https://github.com/OlaCryto/evalanche" target="_blank">GitHub</a>
     <a href="https://www.npmjs.com/package/evalanche" target="_blank">npm</a>
@@ -759,6 +760,18 @@ document.querySelectorAll('a[href^="#"]').forEach(a=>{
     if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
   });
 });
+
+// Live marketplace stats
+(async()=>{
+  try{
+    const r=await fetch('https://evalanche-production.up.railway.app/health');
+    const d=await r.json();
+    if(d.success){
+      const el=document.getElementById('live-status');
+      if(el){el.textContent='Live';el.style.color='#4ade80'}
+    }
+  }catch(e){}
+})();
 </script>
 
 </body>
