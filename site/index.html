@@ -515,7 +515,7 @@ footer{
     <a href="#code" class="fade-in delay-3">Developers</a>
     <a href="https://evalanche-production.up.railway.app/health" target="_blank" class="fade-in delay-4">Marketplace</a>
     <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="fade-in delay-5">GitHub</a>
-    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="nav-cta fade-in delay-6">Get Started</a>
+    <a href="https://www.npmjs.com/package/evalanche-economy" target="_blank" class="nav-cta fade-in delay-6">Get Started</a>
   </div>
 </nav>
 
@@ -531,7 +531,7 @@ footer{
   </p>
 
   <div class="install-pill fade-up delay-4">
-    <code><span>$</span> npm install evalanche</code>
+    <code><span>$</span> npm install evalanche-economy</code>
     <button class="copy-btn" onclick="copyInstall()" title="Copy to clipboard">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
     </button>
@@ -629,7 +629,7 @@ footer{
         <div class="code-lang">agent.ts</div>
       </div>
       <div class="code-body">
-<span class="kw">import</span> { Evalanche } <span class="kw">from</span> <span class="str">'evalanche'</span>;
+<span class="kw">import</span> { Evalanche } <span class="kw">from</span> <span class="str">'evalanche-economy'</span>;
 
 <span class="cmt">// Boot on Base — wallet auto-generated, encrypted, persisted</span>
 <span class="kw">const</span> { agent } = <span class="kw">await</span> Evalanche.<span class="fn">boot</span>({ <span class="prop">network</span>: <span class="str">'base'</span> });
@@ -710,7 +710,7 @@ footer{
   <h2 class="reveal">Build the agent economy.</h2>
   <p class="reveal">Ship autonomous agents that earn, spend, and trade &mdash; today.</p>
   <div class="hero-actions reveal">
-    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="btn-primary">Install Evalanche</a>
+    <a href="https://www.npmjs.com/package/evalanche-economy" target="_blank" class="btn-primary">Install Evalanche</a>
     <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="btn-outline">Read the Docs</a>
   </div>
 </section>
@@ -720,7 +720,7 @@ footer{
   <div class="footer-left">&copy; 2026 Evalanche. MIT License. &nbsp;<span id="live-status" style="font-size:11px;color:var(--text-muted)">&#9679; Checking API...</span></div>
   <div class="footer-links">
     <a href="https://github.com/OlaCryto/evalanche" target="_blank">GitHub</a>
-    <a href="https://www.npmjs.com/package/evalanche" target="_blank">npm</a>
+    <a href="https://www.npmjs.com/package/evalanche-economy" target="_blank">npm</a>
     <a href="https://github.com/OlaCryto/evalanche/issues" target="_blank">Issues</a>
   </div>
 </footer>
@@ -728,7 +728,7 @@ footer{
 <script>
 // Copy install command
 function copyInstall(){
-  navigator.clipboard.writeText('npm install evalanche');
+  navigator.clipboard.writeText('npm install evalanche-economy');
   const btn=document.querySelector('.copy-btn');
   btn.classList.add('copied');
   setTimeout(()=>btn.classList.remove('copied'),2000);
