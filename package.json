@@ -1,7 +1,7 @@
 {
   "name": "evalanche",
-  "version": "0.9.0",
-  "description": "Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), cross-chain bridging (Li.Fi + Gas.zip), and perpetual futures (dYdX v4)",
+  "version": "1.0.0",
+  "description": "Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), agent economy layer (discovery, negotiation, settlement, memory), cross-chain bridging (Li.Fi + Gas.zip), and perpetual futures (dYdX v4)",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,7 +13,8 @@
     }
   },
   "bin": {
-    "evalanche-mcp": "./dist/mcp/cli.mjs"
+    "evalanche-mcp": "./dist/mcp/cli.mjs",
+    "evalanche-marketplace": "./dist/marketplace/cli.mjs"
   },
   "files": [
     "dist",
@@ -39,8 +40,21 @@
     "lifi",
     "gas-zip",
     "web3",
-    "ai-agent"
+    "ai-agent",
+    "agent-economy",
+    "negotiation",
+    "discovery",
+    "settlement",
+    "mcp"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OlaCryto/evalanche"
+  },
+  "homepage": "https://evalanche.dev",
+  "bugs": {
+    "url": "https://github.com/OlaCryto/evalanche/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"
@@ -52,7 +66,11 @@
     "big.js": "^7.0.1",
     "ethers": "^6.13.0"
   },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.6.2"
+  },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"

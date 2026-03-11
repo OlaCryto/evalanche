@@ -20,10 +20,20 @@ export default defineConfig([
     sourcemap: false,
     clean: false,
     target: 'node18',
-    banner: { js: '#!/usr/bin/env node' },
     outDir: 'dist/mcp',
-    // Don't bundle anything — use node_modules at runtime
-    // This ensures @avalabs/core-wallets-sdk is only loaded when multi-VM is used
-    noBundle: true,
+    // Keep all node_modules external — resolved at runtime
+    external: [/^[^./]/],
+  },
+  {
+    entry: ['src/marketplace/cli.ts'],
+    format: ['esm'],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    target: 'node18',
+    outDir: 'dist/marketplace',
+    // better-sqlite3 is a native CJS module — must stay external
+    external: [/^[^./]/],
   },
 ]);

@@ -76,6 +76,54 @@ export type {
   DydxSubaccount,
 } from './perps';
 
+// Agent Economy Layer (v1.0.0)
+export {
+  PolicyEngine,
+  simulateTransaction,
+  DiscoveryClient,
+  AgentServiceHost,
+  NegotiationClient,
+  SettlementClient,
+  AgentMemory,
+} from './economy';
+export type {
+  SpendingPolicy,
+  AllowlistEntry,
+  SpendRecord,
+  BudgetStatus,
+  PolicyEvaluation,
+  PolicyViolationType,
+  PendingTransaction,
+  AgentService,
+  DiscoveryQuery,
+  AgentProfile,
+  SimulationResult,
+  Proposal,
+  ProposalStatus,
+  InteractionRecord,
+  InteractionType,
+  AgentRelationship,
+  MemoryQuery,
+} from './economy';
+
+// Marketplace (production service)
+export { MarketplaceServer, MarketplaceDB } from './marketplace';
+export type {
+  MarketplaceServerOptions,
+  MarketplaceAgent,
+  RegisterAgentInput,
+  RegisterAgentResult,
+  MarketplaceService,
+  ListServiceInput,
+  MarketplaceSearchQuery,
+  MarketplaceSearchResult,
+  HireInput,
+  JobStatus,
+  Job,
+  MarketplaceStats,
+  ApiResponse,
+} from './marketplace';
+
 // MCP
 export { EvalancheMCPServer } from './mcp/server';
 

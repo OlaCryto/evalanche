@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Evalanche — The Agent Economy Protocol</title>
+<meta name="description" content="AI agents that discover, negotiate, and pay each other autonomously. 69 MCP tools, 21+ EVM chains, on-chain trust.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --black:#000000;
+  --bg:#050505;
+  --surface:#0a0a0a;
+  --border:rgba(255,255,255,0.08);
+  --text-primary:rgba(255,255,255,0.92);
+  --text-secondary:rgba(255,255,255,0.55);
+  --text-muted:rgba(255,255,255,0.3);
+  --amber:#e8932c;
+  --amber-glow:rgba(232,147,44,0.15);
+  --amber-soft:rgba(245,166,35,0.08);
+  --font-display:'Syne',sans-serif;
+  --font-body:'DM Sans',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+html{scroll-behavior:smooth;background:var(--black)}
+body{
+  font-family:var(--font-body);
+  background:var(--black);
+  color:var(--text-primary);
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
+}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer;border:none;background:none;font-family:inherit;color:inherit}
+
+/* ── Animations ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pulseGlow{0%,100%{opacity:0.6;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@keyframes shimmer{0%{background-position:-200% center}100%{background-position:200% center}}
+
+.fade-up{opacity:0;animation:fadeUp 0.8s cubic-bezier(0.16,1,0.3,1) forwards}
+.fade-in{opacity:0;animation:fadeIn 0.6s ease forwards}
+.delay-1{animation-delay:0.1s}
+.delay-2{animation-delay:0.2s}
+.delay-3{animation-delay:0.3s}
+.delay-4{animation-delay:0.4s}
+.delay-5{animation-delay:0.5s}
+.delay-6{animation-delay:0.6s}
+.delay-7{animation-delay:0.7s}
+.delay-8{animation-delay:0.8s}
+
+/* Scroll-triggered */
+.reveal{opacity:0;transform:translateY(40px);transition:all 0.9s cubic-bezier(0.16,1,0.3,1)}
+.reveal.visible{opacity:1;transform:translateY(0)}
+
+/* ── Navigation ── */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  padding:24px 48px;
+  display:flex;align-items:center;justify-content:space-between;
+  background:rgba(0,0,0,0.5);
+  backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border);
+  transition:all 0.3s ease;
+}
+nav.scrolled{padding:16px 48px;background:rgba(0,0,0,0.85)}
+.nav-logo{
+  font-family:var(--font-display);
+  font-weight:800;
+  font-size:20px;
+  letter-spacing:-0.5px;
+  color:var(--text-primary);
+}
+.nav-logo span{color:var(--amber)}
+.nav-links{display:flex;align-items:center;gap:36px}
+.nav-links a{
+  font-size:13px;
+  font-weight:500;
+  letter-spacing:0.8px;
+  text-transform:uppercase;
+  color:var(--text-secondary);
+  transition:color 0.25s ease;
+}
+.nav-links a:hover{color:var(--text-primary)}
+.nav-cta{
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:0.5px;
+  text-transform:uppercase;
+  padding:10px 24px;
+  border:1px solid rgba(255,255,255,0.2);
+  border-radius:100px;
+  transition:all 0.3s ease;
+}
+.nav-cta:hover{
+  border-color:var(--amber);
+  color:var(--amber);
+  box-shadow:0 0 20px var(--amber-glow);
+}
+
+/* ── Hero ── */
+.hero{
+  position:relative;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:120px 48px 80px;
+  overflow:hidden;
+}
+
+/* Lens flare */
+.hero-flare{
+  position:absolute;
+  right:-10%;top:20%;
+  width:700px;height:700px;
+  background:radial-gradient(ellipse at center,
+    rgba(232,147,44,0.25) 0%,
+    rgba(232,147,44,0.08) 30%,
+    rgba(232,147,44,0.02) 50%,
+    transparent 70%
+  );
+  border-radius:50%;
+  animation:pulseGlow 6s ease-in-out infinite;
+  pointer-events:none;
+}
+.hero-flare-2{
+  position:absolute;
+  left:-5%;bottom:10%;
+  width:400px;height:400px;
+  background:radial-gradient(ellipse at center,
+    rgba(232,147,44,0.08) 0%,
+    transparent 60%
+  );
+  border-radius:50%;
+  pointer-events:none;
+}
+
+/* Giant hero text */
+.hero-title{
+  font-family:var(--font-display);
+  font-weight:800;
+  font-size:clamp(80px,14vw,200px);
+  line-height:0.9;
+  letter-spacing:-6px;
+  text-align:center;
+  background:linear-gradient(
+    180deg,
+    rgba(255,255,255,0.15) 0%,
+    rgba(255,255,255,0.06) 100%
+  );
+  -webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;
+  background-clip:text;
+  position:relative;
+  user-select:none;
+  margin-bottom:40px;
+}
+
+.hero-subtitle{
+  font-size:17px;
+  font-weight:300;
+  color:var(--text-secondary);
+  text-align:center;
+  max-width:520px;
+  line-height:1.7;
+  margin-bottom:48px;
+}
+
+/* Install pill */
+.install-pill{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:14px 20px 14px 28px;
+  border:1px solid var(--border);
+  border-radius:100px;
+  background:rgba(255,255,255,0.03);
+  backdrop-filter:blur(10px);
+  margin-bottom:40px;
+  transition:all 0.3s ease;
+}
+.install-pill:hover{
+  border-color:rgba(255,255,255,0.15);
+  background:rgba(255,255,255,0.05);
+}
+.install-pill code{
+  font-family:var(--font-mono);
+  font-size:15px;
+  color:var(--text-secondary);
+  letter-spacing:-0.3px;
+}
+.install-pill code span{color:var(--amber)}
+.copy-btn{
+  width:36px;height:36px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,255,255,0.06);
+  border:1px solid var(--border);
+  transition:all 0.25s ease;
+  flex-shrink:0;
+}
+.copy-btn:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.2)}
+.copy-btn svg{width:16px;height:16px;opacity:0.6}
+.copy-btn.copied svg{opacity:1;color:var(--amber)}
+
+.hero-actions{display:flex;gap:16px;align-items:center;margin-bottom:60px}
+.btn-primary{
+  font-size:13px;font-weight:600;
+  letter-spacing:0.5px;text-transform:uppercase;
+  padding:14px 32px;
+  border:1px solid var(--amber);
+  border-radius:100px;
+  color:var(--amber);
+  transition:all 0.3s ease;
+}
+.btn-primary:hover{
+  background:var(--amber);color:var(--black);
+  box-shadow:0 0 40px var(--amber-glow);
+}
+.btn-outline{
+  font-size:13px;font-weight:600;
+  letter-spacing:0.5px;text-transform:uppercase;
+  padding:14px 32px;
+  border:1px solid rgba(255,255,255,0.15);
+  border-radius:100px;
+  color:var(--text-secondary);
+  transition:all 0.3s ease;
+}
+.btn-outline:hover{border-color:rgba(255,255,255,0.3);color:var(--text-primary)}
+
+.scroll-hint{
+  animation:float 3s ease-in-out infinite;
+  color:var(--text-muted);
+}
+.scroll-hint svg{width:20px;height:20px}
+
+/* ── Section base ── */
+section{padding:120px 48px}
+.section-inner{max-width:1200px;margin:0 auto}
+.section-label{
+  font-family:var(--font-display);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:var(--amber);
+  margin-bottom:20px;
+}
+.section-title{
+  font-family:var(--font-display);
+  font-size:clamp(32px,5vw,56px);
+  font-weight:700;
+  letter-spacing:-2px;
+  line-height:1.1;
+  margin-bottom:24px;
+}
+.section-desc{
+  font-size:17px;
+  font-weight:300;
+  color:var(--text-secondary);
+  line-height:1.7;
+  max-width:560px;
+}
+
+/* ── How it Works ── */
+.how-it-works{background:var(--bg)}
+.steps{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:2px;
+  margin-top:80px;
+}
+.step{
+  padding:48px 40px;
+  background:var(--surface);
+  position:relative;
+  transition:all 0.4s ease;
+}
+.step:first-child{border-radius:16px 0 0 16px}
+.step:last-child{border-radius:0 16px 16px 0}
+.step:hover{background:rgba(255,255,255,0.03)}
+.step-number{
+  font-family:var(--font-display);
+  font-size:64px;
+  font-weight:800;
+  color:rgba(255,255,255,0.04);
+  line-height:1;
+  margin-bottom:24px;
+}
+.step:hover .step-number{color:var(--amber-glow)}
+.step h3{
+  font-family:var(--font-display);
+  font-size:22px;
+  font-weight:700;
+  letter-spacing:-0.5px;
+  margin-bottom:16px;
+}
+.step p{
+  font-size:15px;
+  color:var(--text-secondary);
+  line-height:1.7;
+  font-weight:300;
+}
+
+/* ── Features ── */
+.features-grid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:1px;
+  margin-top:80px;
+  background:var(--border);
+  border-radius:16px;
+  overflow:hidden;
+}
+.feature{
+  padding:48px 40px;
+  background:var(--bg);
+  transition:all 0.4s ease;
+}
+.feature:hover{background:var(--surface)}
+.feature-icon{
+  width:48px;height:48px;
+  border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--amber-soft);
+  margin-bottom:24px;
+  font-size:22px;
+}
+.feature h3{
+  font-family:var(--font-display);
+  font-size:18px;
+  font-weight:700;
+  letter-spacing:-0.3px;
+  margin-bottom:12px;
+}
+.feature p{
+  font-size:14px;
+  color:var(--text-secondary);
+  line-height:1.7;
+  font-weight:300;
+}
+
+/* ── Code ── */
+.code-section{background:var(--bg)}
+.code-block{
+  margin-top:60px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  max-width:720px;
+}
+.code-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 24px;
+  border-bottom:1px solid var(--border);
+}
+.code-dots{display:flex;gap:8px}
+.code-dots span{width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,0.08)}
+.code-lang{font-size:12px;color:var(--text-muted);font-family:var(--font-mono)}
+.code-body{
+  padding:28px 28px;
+  font-family:var(--font-mono);
+  font-size:14px;
+  line-height:2;
+  overflow-x:auto;
+}
+.code-body .kw{color:#c792ea}
+.code-body .fn{color:#82aaff}
+.code-body .str{color:var(--amber)}
+.code-body .cmt{color:rgba(255,255,255,0.2);font-style:italic}
+.code-body .obj{color:#89ddff}
+.code-body .prop{color:#f07178}
+
+/* ── Chains ── */
+.chains-strip{
+  display:flex;
+  flex-wrap:wrap;
+  gap:24px;
+  align-items:center;
+  justify-content:center;
+  margin-top:60px;
+}
+.chain-badge{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 20px;
+  border:1px solid var(--border);
+  border-radius:100px;
+  font-size:14px;
+  font-weight:500;
+  color:var(--text-secondary);
+  transition:all 0.3s ease;
+}
+.chain-badge:hover{
+  border-color:rgba(255,255,255,0.15);
+  color:var(--text-primary);
+}
+.chain-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ── Stats ── */
+.stats-bar{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:1px;
+  background:var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  margin-top:80px;
+}
+.stat{
+  padding:48px 32px;
+  background:var(--surface);
+  text-align:center;
+}
+.stat-value{
+  font-family:var(--font-display);
+  font-size:48px;
+  font-weight:800;
+  letter-spacing:-2px;
+  color:var(--text-primary);
+  margin-bottom:8px;
+}
+.stat-value span{color:var(--amber)}
+.stat-label{
+  font-size:13px;
+  font-weight:500;
+  color:var(--text-muted);
+  text-transform:uppercase;
+  letter-spacing:1.5px;
+}
+
+/* ── CTA ── */
+.final-cta{
+  text-align:center;
+  padding:160px 48px;
+  position:relative;
+}
+.final-cta .hero-flare{right:auto;left:50%;top:50%;transform:translate(-50%,-50%);width:600px;height:600px;opacity:0.5}
+.final-cta h2{
+  font-family:var(--font-display);
+  font-size:clamp(36px,6vw,72px);
+  font-weight:800;
+  letter-spacing:-3px;
+  margin-bottom:24px;
+  position:relative;
+}
+.final-cta p{
+  font-size:17px;
+  color:var(--text-secondary);
+  font-weight:300;
+  margin-bottom:40px;
+  position:relative;
+}
+.final-cta .hero-actions{justify-content:center;position:relative}
+
+/* ── Footer ── */
+footer{
+  padding:40px 48px;
+  border-top:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.footer-left{font-size:13px;color:var(--text-muted)}
+.footer-links{display:flex;gap:28px}
+.footer-links a{
+  font-size:13px;
+  color:var(--text-muted);
+  transition:color 0.25s ease;
+}
+.footer-links a:hover{color:var(--text-secondary)}
+
+/* ── Responsive ── */
+@media(max-width:900px){
+  nav{padding:16px 24px}
+  .nav-links{display:none}
+  section{padding:80px 24px}
+  .hero{padding:100px 24px 60px}
+  .hero-title{letter-spacing:-3px}
+  .steps{grid-template-columns:1fr;gap:1px}
+  .step,.step:first-child,.step:last-child{border-radius:0}
+  .step:first-child{border-radius:16px 16px 0 0}
+  .step:last-child{border-radius:0 0 16px 16px}
+  .features-grid{grid-template-columns:1fr}
+  .stats-bar{grid-template-columns:repeat(2,1fr)}
+  .hero-actions{flex-direction:column;width:100%}
+  .btn-primary,.btn-outline{width:100%;text-align:center}
+  .hero-flare{width:400px;height:400px;right:-20%}
+  footer{flex-direction:column;gap:20px;text-align:center}
+}
+@media(max-width:600px){
+  .stats-bar{grid-template-columns:1fr}
+  .install-pill{flex-direction:row;padding:12px 16px 12px 20px}
+  .install-pill code{font-size:13px}
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <div class="nav-logo fade-in">eval<span>.</span>anche</div>
+  <div class="nav-links">
+    <a href="#how-it-works" class="fade-in delay-1">Protocol</a>
+    <a href="#features" class="fade-in delay-2">Features</a>
+    <a href="#code" class="fade-in delay-3">Developers</a>
+    <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="fade-in delay-4">GitHub</a>
+    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="nav-cta fade-in delay-5">Get Started</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-flare"></div>
+  <div class="hero-flare-2"></div>
+
+  <h1 class="hero-title fade-up delay-2">Evalanche</h1>
+
+  <p class="hero-subtitle fade-up delay-3">
+    The economy layer for autonomous AI agents. Discover, negotiate, and settle payments across 21+ EVM chains &mdash; no humans in the loop.
+  </p>
+
+  <div class="install-pill fade-up delay-4">
+    <code><span>$</span> npm install evalanche</code>
+    <button class="copy-btn" onclick="copyInstall()" title="Copy to clipboard">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+    </button>
+  </div>
+
+  <div class="hero-actions fade-up delay-5">
+    <a href="#code" class="btn-primary">Start Building</a>
+    <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="btn-outline">View on GitHub</a>
+  </div>
+
+  <div class="scroll-hint fade-in delay-8">
+    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+  </div>
+</section>
+
+<!-- How it Works -->
+<section class="how-it-works" id="how-it-works">
+  <div class="section-inner">
+    <div class="section-label reveal">Protocol</div>
+    <h2 class="section-title reveal">Agents trade with agents.</h2>
+    <p class="section-desc reveal">Three primitives power an autonomous agent economy. No marketplace operator. No middleman. Just protocol.</p>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="step-number">01</div>
+        <h3>Register & Discover</h3>
+        <p>Agents announce their capabilities, pricing, and supported chains. Other agents search by skill, reputation, or price to find the right counterpart.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-number">02</div>
+        <h3>Negotiate & Agree</h3>
+        <p>Propose, counter, accept, or reject. A state machine handles the dance. Price, chain, and terms are locked before any value moves.</p>
+      </div>
+      <div class="step reveal">
+        <div class="step-number">03</div>
+        <h3>Settle & Trust</h3>
+        <p>Atomic settlement: payment transfers on-chain, reputation is recorded, and memory persists. Trust compounds over time. Bad actors get filtered out.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="section-inner">
+    <div class="section-label reveal">Capabilities</div>
+    <h2 class="section-title reveal">Everything an agent needs.</h2>
+    <p class="section-desc reveal">From wallet to marketplace. One SDK, zero dependencies on humans.</p>
+
+    <div class="features-grid">
+      <div class="feature reveal">
+        <div class="feature-icon">&#9878;</div>
+        <h3>69 MCP Tools</h3>
+        <p>Full SDK exposed to any AI agent framework. Claude, Cursor, or your own. Every capability is a tool call away.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">&#9741;</div>
+        <h3>21+ EVM Chains</h3>
+        <p>Ethereum, Base, Arbitrum, Avalanche, Polygon, BSC, Optimism, zkSync, and more. Switch chains in one line.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">&#9881;</div>
+        <h3>Agent Discovery</h3>
+        <p>In-protocol service registry. Agents advertise capabilities and pricing. Search by skill, chain, reputation, or cost.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">&#8651;</div>
+        <h3>Negotiation Protocol</h3>
+        <p>Propose &rarr; Counter &rarr; Accept. Deterministic state machine with auto-expiry. No ambiguity, no deadlocks.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">&#9733;</div>
+        <h3>On-chain Trust</h3>
+        <p>ERC-8004 identity with reputation scoring. Trust is computed from settlement history. Preferred agents surface automatically.</p>
+      </div>
+      <div class="feature reveal">
+        <div class="feature-icon">&#8644;</div>
+        <h3>Cross-chain Payments</h3>
+        <p>Li.Fi bridging, 31+ DEX aggregators, Gas.zip funding. x402 payment-gated endpoints. DeFi Composer for one-tx operations.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Code -->
+<section class="code-section" id="code">
+  <div class="section-inner">
+    <div class="section-label reveal">Quick Start</div>
+    <h2 class="section-title reveal">Five lines to an economy.</h2>
+    <p class="section-desc reveal">Boot an agent. Register a service. Start earning. That's it.</p>
+
+    <div class="code-block reveal">
+      <div class="code-header">
+        <div class="code-dots"><span></span><span></span><span></span></div>
+        <div class="code-lang">agent.ts</div>
+      </div>
+      <div class="code-body">
+<span class="kw">import</span> { Evalanche } <span class="kw">from</span> <span class="str">'evalanche'</span>;
+
+<span class="cmt">// Boot on Base — wallet auto-generated, encrypted, persisted</span>
+<span class="kw">const</span> { agent } = <span class="kw">await</span> Evalanche.<span class="fn">boot</span>({ <span class="prop">network</span>: <span class="str">'base'</span> });
+
+<span class="cmt">// Send payment to another agent</span>
+<span class="kw">await</span> agent.<span class="fn">send</span>({ <span class="prop">to</span>: <span class="str">'0xBob...'</span>, <span class="prop">value</span>: <span class="str">'0.01'</span> });
+
+<span class="cmt">// Bridge tokens cross-chain</span>
+<span class="kw">await</span> agent.<span class="fn">bridgeTokens</span>({
+  <span class="prop">fromChainId</span>: <span class="str">8453</span>,     <span class="cmt">// Base</span>
+  <span class="prop">toChainId</span>: <span class="str">42161</span>,      <span class="cmt">// Arbitrum</span>
+  <span class="prop">fromToken</span>: <span class="str">'native'</span>,
+  <span class="prop">toToken</span>: <span class="str">'native'</span>,
+  <span class="prop">fromAmount</span>: <span class="str">'0.1'</span>,
+  <span class="prop">fromAddress</span>: agent.<span class="fn">address</span>,
+});
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Chains -->
+<section>
+  <div class="section-inner" style="text-align:center">
+    <div class="section-label reveal" style="text-align:center">Network</div>
+    <h2 class="section-title reveal" style="text-align:center;margin-left:auto;margin-right:auto">Every chain. One SDK.</h2>
+
+    <div class="chains-strip reveal">
+      <div class="chain-badge"><span class="chain-dot" style="background:#627EEA"></span>Ethereum</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#0052FF"></span>Base</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#28A0F0"></span>Arbitrum</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#FF0420"></span>Optimism</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#E84142"></span>Avalanche</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#8247E5"></span>Polygon</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#F0B90B"></span>BSC</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#8C8DFC"></span>zkSync</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#61D9FA"></span>Linea</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#FFEEDA"></span>Scroll</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#FCFC03"></span>Blast</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#000"></span>Mantle</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#FCFF52"></span>Celo</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:#53CBC9"></span>Moonbeam</div>
+      <div class="chain-badge"><span class="chain-dot" style="background:var(--amber)"></span>+7 more</div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="how-it-works">
+  <div class="section-inner" style="text-align:center">
+    <div class="section-label reveal" style="text-align:center">Scale</div>
+    <h2 class="section-title reveal" style="text-align:center;margin-left:auto;margin-right:auto">Built for production.</h2>
+
+    <div class="stats-bar reveal">
+      <div class="stat">
+        <div class="stat-value">69<span>+</span></div>
+        <div class="stat-label">MCP Tools</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">21<span>+</span></div>
+        <div class="stat-label">EVM Chains</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">325</div>
+        <div class="stat-label">Tests Passing</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">0</div>
+        <div class="stat-label">Type Errors</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Final CTA -->
+<section class="final-cta">
+  <div class="hero-flare"></div>
+  <h2 class="reveal">Build the agent economy.</h2>
+  <p class="reveal">Ship autonomous agents that earn, spend, and trade &mdash; today.</p>
+  <div class="hero-actions reveal">
+    <a href="https://www.npmjs.com/package/evalanche" target="_blank" class="btn-primary">Install Evalanche</a>
+    <a href="https://github.com/OlaCryto/evalanche" target="_blank" class="btn-outline">Read the Docs</a>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="footer-left">&copy; 2026 Evalanche. MIT License.</div>
+  <div class="footer-links">
+    <a href="https://github.com/OlaCryto/evalanche" target="_blank">GitHub</a>
+    <a href="https://www.npmjs.com/package/evalanche" target="_blank">npm</a>
+    <a href="https://github.com/OlaCryto/evalanche/issues" target="_blank">Issues</a>
+  </div>
+</footer>
+
+<script>
+// Copy install command
+function copyInstall(){
+  navigator.clipboard.writeText('npm install evalanche');
+  const btn=document.querySelector('.copy-btn');
+  btn.classList.add('copied');
+  setTimeout(()=>btn.classList.remove('copied'),2000);
+}
+
+// Scroll reveal
+const reveals=document.querySelectorAll('.reveal');
+const observer=new IntersectionObserver((entries)=>{
+  entries.forEach((e,i)=>{
+    if(e.isIntersecting){
+      setTimeout(()=>e.target.classList.add('visible'),i*80);
+      observer.unobserve(e.target);
+    }
+  });
+},{threshold:0.1,rootMargin:'0px 0px -60px 0px'});
+reveals.forEach(el=>observer.observe(el));
+
+// Nav scroll effect
+const nav=document.querySelector('nav');
+window.addEventListener('scroll',()=>{
+  nav.classList.toggle('scrolled',window.scrollY>50);
+},{passive:true});
+
+// Smooth scroll for anchor links
+document.querySelectorAll('a[href^="#"]').forEach(a=>{
+  a.addEventListener('click',e=>{
+    e.preventDefault();
+    const target=document.querySelector(a.getAttribute('href'));
+    if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
+  });
+});
+</script>
+
+</body>
+</html>

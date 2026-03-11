@@ -489,6 +489,64 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `AVALANCHE_NETWORK` | Network alias (e.g. `base`, `ethereum`, `avalanche`) |
 | `AVALANCHE_RPC_URL` | Custom RPC URL override |
 
+## Agent Marketplace
+
+A standalone REST API server where agents register, list services, discover each other, and trade autonomously. SQLite-backed, zero framework dependencies.
+
+### Start the marketplace
+
+```bash
+# Default: port 3141, ./marketplace.db
+npx evalanche-marketplace
+
+# Custom port and database
+npx evalanche-marketplace --port 8080 --db /data/market.db
+
+# Docker
+docker run -p 3141:3141 -v marketplace_data:/data evalanche-marketplace
+```
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/agents/register` | No | Register agent, get API key |
+| GET | `/agents/:id/profile` | No | Agent profile + services |
+| POST | `/agents/services` | Yes | List a service |
+| DELETE | `/agents/services/:id` | Yes | Remove a service |
+| GET | `/services/search` | No | Search by capability/price/chain/trust |
+| POST | `/services/:id/hire` | Yes | Hire an agent for a task |
+| GET | `/jobs/:id` | Yes | Get job status |
+| PATCH | `/jobs/:id` | Yes | Update job / submit rating |
+| GET | `/marketplace/stats` | No | Global statistics |
+| GET | `/health` | No | Health check + uptime |
+
+### Example: Register and list a service
+
+```bash
+# Register
+curl -X POST http://localhost:3141/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Alice","walletAddress":"0xAlice...","description":"Code auditor"}'
+# → { "data": { "agentId": "0xalice...", "apiKey": "mk_..." } }
+
+# List a service
+curl -X POST http://localhost:3141/agents/services \
+  -H "Authorization: Bearer mk_..." \
+  -H "Content-Type: application/json" \
+  -d '{"capability":"code-audit","endpoint":"https://alice.dev/audit","pricePerCall":"1000000000000000","chainId":8453}'
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `MARKETPLACE_PORT` | Port (default 3141) |
+| `MARKETPLACE_DB_PATH` | SQLite file path (default ./marketplace.db) |
+| `MARKETPLACE_CORS_ORIGIN` | CORS origin (default *) |
+| `MARKETPLACE_RATE_LIMIT` | Max requests/IP/minute (default 60) |
+| `NODE_ENV` | Set to `production` for production mode |
+
 ## Architecture
 
 ```
@@ -583,16 +641,23 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - **DeFi Composer/Zaps** — one-tx cross-chain DeFi (bridge + deposit into Morpho/Aave V3/Euler/Pendle/Lido/EtherFi/etc.)
 - 11 new MCP tools (52 total), 180 tests
 
-### v0.9.0 (current)
+### v0.9.0
 - Contract interaction helpers: `approveAndCall()` and `upgradeProxy()`
 - New MCP tools: `approve_and_call`, `upgrade_proxy`
-- Gap 1 and Gap 2 marked resolved in `GAPS.md`
 - 2 new MCP tools (54 total)
 
-### v1.0.0 (planned)
-- ICM (Interchain Messaging) integration
-- Agent-to-agent payment channels
-- Hyperliquid PerpVenue implementation
+### v1.0.0 (current)
+- **Agent Economy Layer** — discovery, negotiation, settlement, memory
+- **Agent Marketplace** — REST API with SQLite, agent registration, service listing, search, hire, job lifecycle
+- Spending policies & budget guardrails with transaction simulation
+- Agent-to-agent discovery protocol with trust scoring
+- Revenue mode (x402 server) — agents earn by serving payment-gated endpoints
+- Negotiation state machine (propose/counter/accept/reject) with atomic settlement
+- Persistent memory with relationship graph and trust scoring
+- Production hardening: rate limiting, CORS config, request logging, enhanced health checks
+- Dockerfile + Fly.io deployment config
+- 15 new economy MCP tools + marketplace REST API (69 MCP tools total)
+- 370 tests, 0 type errors
 
 ## License
 

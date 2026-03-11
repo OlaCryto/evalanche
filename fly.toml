@@ -1,0 +1,21 @@
+app = "evalanche-marketplace"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  MARKETPLACE_PORT = "3141"
+  MARKETPLACE_DB_PATH = "/data/marketplace.db"
+  MARKETPLACE_RATE_LIMIT = "60"
+
+[http_service]
+  internal_port = 3141
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+
+[mounts]
+  source = "marketplace_data"
+  destination = "/data"
