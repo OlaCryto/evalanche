@@ -220,6 +220,11 @@ export class AgentServiceHost {
         return { valid: false, reason: `Wrong chain: expected ${endpoint.chainId}, got ${payload.chainId}` };
       }
 
+      // Check payment amount is sufficient
+      if (!payload.amount || parseFloat(payload.amount) < parseFloat(endpoint.price)) {
+        return { valid: false, reason: `Insufficient payment: expected ${endpoint.price} ${endpoint.currency}, got ${payload.amount ?? '0'}` };
+      }
+
       // Proof is valid
       return { valid: true, payer: recoveredAddress };
     } catch {

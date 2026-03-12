@@ -326,17 +326,25 @@ export class MarketplaceDB {
     status?: JobStatus;
     result?: string;
     paymentTxHash?: string;
+    escrowTxHash?: string;
+    escrowAddress?: string;
     reputationScore?: number;
   }): boolean {
     const sets: string[] = [];
     const params: unknown[] = [];
 
     if (updates.status) {
-      sets.push('status = ?');
-      params.push(updates.status);
-      if (updates.status === 'completed' || updates.status === 'failed') {
-        sets.push('completed_at = ?');
-        params.push(Date.now());
+      // Prevent double-completion from inflating stats
+      const current = this.getJob(jobId);
+      if (current && current.status === updates.status) {
+        // No-op if status hasn't changed
+      } else {
+        sets.push('status = ?');
+        params.push(updates.status);
+        if (updates.status === 'completed' || updates.status === 'failed') {
+          sets.push('completed_at = ?');
+          params.push(Date.now());
+        }
       }
     }
     if (updates.result !== undefined) {
@@ -347,6 +355,14 @@ export class MarketplaceDB {
       sets.push('payment_tx_hash = ?');
       params.push(updates.paymentTxHash);
     }
+    if (updates.escrowTxHash) {
+      sets.push('escrow_tx_hash = ?');
+      params.push(updates.escrowTxHash);
+    }
+    if (updates.escrowAddress) {
+      sets.push('escrow_address = ?');
+      params.push(updates.escrowAddress);
+    }
     if (updates.reputationScore !== undefined) {
       sets.push('reputation_score = ?');
       params.push(updates.reputationScore);
@@ -354,11 +370,15 @@ export class MarketplaceDB {
 
     if (sets.length === 0) return false;
 
+    // Check previous status before updating to prevent double-counting
+    const previousJob = this.getJob(jobId);
+    const wasAlreadyCompleted = previousJob?.status === 'completed';
+
     params.push(jobId);
     const result = this.db.prepare(`UPDATE jobs SET ${sets.join(', ')} WHERE id = ?`).run(...params);
 
-    // If job completed, update agent stats
-    if (updates.status === 'completed') {
+    // Only update agent stats on first completion (prevents inflation)
+    if (updates.status === 'completed' && !wasAlreadyCompleted) {
       const job = this.getJob(jobId);
       if (job) {
         this.db.prepare(`
