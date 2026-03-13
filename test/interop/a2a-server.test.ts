@@ -317,6 +317,35 @@ describe('A2AServer', () => {
       });
       expect(res.status).toBe(204);
     });
+
+    it('should return 400 for malformed JSON body', async () => {
+      server = new A2AServer({ name: 'TestAgent', url: 'http://localhost:3211' });
+      server.registerSkill({
+        id: 'test',
+        name: 'Test',
+        description: 'Test',
+        handler: async () => ({ text: 'ok' }),
+      });
+      server.listen(3211);
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      const res = await fetch('http://localhost:3211/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'not valid json {{{',
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('Invalid JSON');
+    });
+
+    it('should never advertise supportsStreaming as true', () => {
+      server = new A2AServer({ name: 'TestAgent', url: 'http://localhost:3200' });
+      const card = server.getAgentCard();
+      expect(card.supportsStreaming).toBe(false);
+    });
   });
 
   describe('close', () => {

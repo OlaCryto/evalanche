@@ -66,8 +66,6 @@ export interface A2AServerOptions {
   provider?: { name: string; url?: string };
   /** Authentication config */
   authentication?: A2AAuthentication;
-  /** Whether to support streaming */
-  supportsStreaming?: boolean;
 }
 
 /**
@@ -128,7 +126,8 @@ export class A2AServer {
       skills,
       defaultInputModes: ['text'],
       defaultOutputModes: ['text'],
-      supportsStreaming: this._options.supportsStreaming ?? false,
+      // Streaming not implemented — always advertise false to avoid misleading clients
+      supportsStreaming: false,
     };
   }
 
@@ -149,6 +148,14 @@ export class A2AServer {
           res.end(JSON.stringify({ error: message }));
         }
       });
+    });
+
+    this._server.on('error', (err) => {
+      throw new EvalancheError(
+        `A2A server failed to start: ${err.message}`,
+        EvalancheErrorCode.A2A_ERROR,
+        err,
+      );
     });
 
     this._server.listen(port);
@@ -337,7 +344,7 @@ export class A2AServer {
           const raw = Buffer.concat(chunks).toString('utf-8');
           resolve(raw ? JSON.parse(raw) : {});
         } catch {
-          reject(new Error('Invalid JSON body'));
+          reject(new EvalancheError('Invalid JSON body', EvalancheErrorCode.A2A_ERROR));
         }
       });
       req.on('error', reject);
