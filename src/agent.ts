@@ -316,9 +316,19 @@ export class Evalanche {
    * @returns Transaction hash and receipt
    */
   async call(intent: CallIntent): Promise<TransactionResult> {
+    // Encode calldata so policy enforcement can check function selectors
+    let data: string | undefined;
+    try {
+      const { Interface } = await import('ethers');
+      const iface = new Interface(intent.abi);
+      data = iface.encodeFunctionData(intent.method, intent.args ?? []);
+    } catch {
+      // If encoding fails, proceed without data — call() itself will handle the error
+    }
     await this._enforcePolicy({
       to: intent.contract,
       value: intent.value ? parseEther(intent.value).toString() : undefined,
+      data,
     });
     const result = await this.transactionBuilder.call(intent);
     this._recordSpend(intent.contract, intent.value ? parseEther(intent.value).toString() : '0', result.hash);

@@ -41,6 +41,7 @@ export type { Proposal, ProposalStatus } from './negotiation';
 
 // Settlement
 export { SettlementClient } from './settlement';
+export type { AddressResolver, SettlementParams, SettlementResult } from './settlement';
 
 // Escrow
 export { EscrowClient } from './escrow';
