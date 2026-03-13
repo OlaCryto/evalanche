@@ -4,6 +4,9 @@ import { ReputationReporter } from '../reputation/reporter';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
 import type { NegotiationClient, Proposal } from './negotiation';
 
+/** Resolves an agent ID to a wallet address */
+export type AddressResolver = (agentId: string) => string | Promise<string>;
+
 /** Parameters for settling an accepted proposal */
 export interface SettlementParams {
   /** Proposal ID to settle */
@@ -49,12 +52,15 @@ export class SettlementClient {
   private readonly _txBuilder: TransactionBuilder;
   private readonly _reputation: ReputationReporter;
   private readonly _negotiation: NegotiationClient;
+  private readonly _resolveAddress: AddressResolver;
 
-  constructor(wallet: AgentSigner, negotiation: NegotiationClient) {
+  constructor(wallet: AgentSigner, negotiation: NegotiationClient, resolveAddress?: AddressResolver) {
     this._wallet = wallet;
     this._txBuilder = new TransactionBuilder(wallet);
     this._reputation = new ReputationReporter(wallet);
     this._negotiation = negotiation;
+    // Default resolver: assume agentId IS the wallet address (backward-compatible)
+    this._resolveAddress = resolveAddress ?? ((id: string) => id);
   }
 
   /**
@@ -89,8 +95,9 @@ export class SettlementClient {
     try {
       const { formatEther } = await import('ethers');
       const humanReadable = formatEther(BigInt(agreedPrice));
+      const sellerAddress = await this._resolveAddress(proposal.toAgentId);
       const txResult = await this._txBuilder.send({
-        to: proposal.toAgentId, // In a full implementation, resolve agentId → address
+        to: sellerAddress,
         value: humanReadable,
       });
       paymentTxHash = txResult.hash;

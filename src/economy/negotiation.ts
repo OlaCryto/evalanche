@@ -177,7 +177,7 @@ export class NegotiationClient {
     if (!proposal) return undefined;
 
     // Check expiry
-    if (proposal.status === 'pending' && Date.now() > proposal.expiresAt) {
+    if ((proposal.status === 'pending' || proposal.status === 'countered') && Date.now() > proposal.expiresAt) {
       proposal.status = 'expired';
       proposal.updatedAt = Date.now();
     }
@@ -190,7 +190,7 @@ export class NegotiationClient {
     const results: Proposal[] = [];
     for (const proposal of this._proposals.values()) {
       // Check expiry
-      if (proposal.status === 'pending' && Date.now() > proposal.expiresAt) {
+      if ((proposal.status === 'pending' || proposal.status === 'countered') && Date.now() > proposal.expiresAt) {
         proposal.status = 'expired';
         proposal.updatedAt = Date.now();
       }
@@ -220,7 +220,7 @@ export class NegotiationClient {
     const proposal = this._get(proposalId);
 
     // Check expiry
-    if (proposal.status === 'pending' && Date.now() > proposal.expiresAt) {
+    if ((proposal.status === 'pending' || proposal.status === 'countered') && Date.now() > proposal.expiresAt) {
       proposal.status = 'expired';
       proposal.updatedAt = Date.now();
       throw new EvalancheError(`Proposal ${proposalId} has expired`, EvalancheErrorCode.NEGOTIATION_ERROR);
