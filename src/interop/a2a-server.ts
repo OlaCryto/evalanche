@@ -26,7 +26,6 @@ import type {
   AgentCard,
   A2ASkill,
   A2ATask,
-  A2ATaskStatus,
   A2AMessage,
   A2AArtifact,
   A2AAuthentication,
@@ -138,10 +137,16 @@ export class A2AServer {
    */
   listen(port: number): Server {
     this._server = createServer((req, res) => {
-      this._handleRequest(req, res).catch(() => {
+      this._handleRequest(req, res).catch((err) => {
         if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Internal server error' }));
+          const isValidationError = err instanceof EvalancheError &&
+            err.code === EvalancheErrorCode.A2A_ERROR;
+          const status = isValidationError ? 400 : 500;
+          const message = isValidationError
+            ? (err as Error).message
+            : 'Internal server error';
+          res.writeHead(status, { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: message }));
         }
       });
     });
@@ -303,6 +308,9 @@ export class A2AServer {
         artifacts.push({ name: 'result', uri: result.uri });
       }
 
+      // Don't overwrite terminal states (e.g. task was canceled while handler ran)
+      if (task.status === 'canceled' || task.status === 'failed') return;
+
       task.artifacts = artifacts;
       task.messages.push({
         role: 'agent',
@@ -310,6 +318,7 @@ export class A2AServer {
       });
       task.status = 'completed';
     } catch (error) {
+      if (task.status === 'canceled') return;
       task.status = 'failed';
       task.error = {
         code: 'HANDLER_ERROR',

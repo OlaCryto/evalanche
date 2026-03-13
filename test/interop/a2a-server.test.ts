@@ -139,7 +139,7 @@ describe('A2AServer', () => {
       expect(['submitted', 'working', 'completed']).toContain(task.status);
     });
 
-    it('should return 404 for unknown skill', async () => {
+    it('should return 400 for unknown skill', async () => {
       server = new A2AServer({ name: 'TestAgent', url: 'http://localhost:3203' });
       server.listen(3203);
 
@@ -151,8 +151,26 @@ describe('A2AServer', () => {
         body: JSON.stringify({ skill_id: 'nonexistent' }),
       });
 
-      // Server returns 500 because the handler throws
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('Unknown skill');
+    });
+
+    it('should return 400 for missing skill_id', async () => {
+      server = new A2AServer({ name: 'TestAgent', url: 'http://localhost:3209' });
+      server.listen(3209);
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      const res = await fetch('http://localhost:3209/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('skill_id');
     });
 
     it('should get task status', async () => {
@@ -228,6 +246,44 @@ describe('A2AServer', () => {
       expect(cancelRes.ok).toBe(true);
       const canceledTask = await cancelRes.json();
       expect(canceledTask.status).toBe('canceled');
+    });
+
+    it('should preserve canceled status after handler finishes', async () => {
+      server = new A2AServer({ name: 'TestAgent', url: 'http://localhost:3210' });
+      server.registerSkill({
+        id: 'medium',
+        name: 'Medium',
+        description: 'Medium task',
+        handler: async () => {
+          await new Promise((r) => setTimeout(r, 200));
+          return { text: 'done' };
+        },
+      });
+      server.listen(3210);
+
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Submit
+      const submitRes = await fetch('http://localhost:3210/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skill_id: 'medium',
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'go' }] }],
+        }),
+      });
+      const task = await submitRes.json();
+
+      // Cancel immediately
+      await fetch(`http://localhost:3210/tasks/${task.id}/cancel`, { method: 'POST' });
+
+      // Wait for handler to finish
+      await new Promise((r) => setTimeout(r, 400));
+
+      // Status should still be canceled, not overwritten to completed
+      const getRes = await fetch(`http://localhost:3210/tasks/${task.id}`);
+      const finalTask = await getRes.json();
+      expect(finalTask.status).toBe('canceled');
     });
 
     it('should return 404 for unknown task', async () => {
