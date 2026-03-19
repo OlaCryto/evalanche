@@ -6,8 +6,14 @@
  *   - Future: other perpetual futures exchanges
  */
 
-import type { AgentSigner } from '../wallet/signer';
 import { DydxClient } from './dydx/client';
+import type {
+  DydxSubaccount,
+  LimitOrderParams,
+  MarketOrderParams,
+  PerpMarket,
+  PerpPosition,
+} from './dydx/types';
 
 export { DydxClient } from './dydx/client';
 export { DYDX_MARKETS, market } from './dydx/markets';
@@ -36,16 +42,16 @@ export interface PerpVenue {
 export type PerpVenueName = 'dydx';
 
 export class PerpClient {
-  private readonly signer: AgentSigner;
+  private readonly mnemonic: string;
   private dydx: DydxClient | null = null;
 
-  constructor(signer: AgentSigner) {
-    this.signer = signer;
+  constructor(mnemonic: string) {
+    this.mnemonic = mnemonic;
   }
 
   private getDydx(): DydxClient {
     if (!this.dydx) {
-      this.dydx = new DydxClient(this.signer);
+      this.dydx = new DydxClient(this.mnemonic);
     }
     return this.dydx;
   }
