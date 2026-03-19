@@ -41,7 +41,7 @@ export type {
 } from './bridge';
 
 export { ArenaSwapClient } from './swap/arena';
-export { YakSwapClient } from './swap/yak';
+export { YieldYakClient } from './swap/yak';
 
 export { DydxClient, PerpClient, DYDX_MARKETS, market } from './perps';
 export type {
