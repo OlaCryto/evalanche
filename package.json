@@ -58,6 +58,15 @@
     "vitest": "^1.6.0"
   },
   "overrides": {
-    "@ledgerhq/cryptoassets": "9.13.0"
+    "@ledgerhq/cryptoassets": "9.13.0",
+    "@hpke/core": "^1.9.0",
+    "axios": "^1.13.6",
+    "@dydxprotocol/v4-client-js": {
+      "axios": "^1.13.6",
+      "@osmonauts/lcd": "^1.0.3"
+    },
+    "@osmonauts/lcd": {
+      "axios": "^1.13.6"
+    }
   }
 }
