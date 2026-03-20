@@ -1,8 +1,8 @@
 # Evalanche
 
-**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), full agent identity resolution, payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), agent economy layer, and perpetual futures (dYdX v4)**
+**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), full agent identity resolution, payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), market intelligence (CoinGecko), prediction markets (Polymarket CLOB), agent economy primitives, DeFi operations, and perpetual futures (dYdX v4)**
 
-Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), agent economy primitives (discovery, negotiation, settlement, escrow, memory), and one-click DeFi operations. No browser, no popups, no human in the loop.
+Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), CoinGecko market data, Polymarket market discovery, agent economy primitives (discovery, negotiation, settlement, escrow, memory), DeFi operations, and perpetual futures on dYdX. No browser, no popups, no human in the loop.
 
 ## Install
 
@@ -685,13 +685,37 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - Supports `ipfs://`, `https://`, `data:` URI schemes
 - 5 new MCP tools (74 total), 372 tests
 
-### v1.2.0 (current)
+### v1.2.0
 - **DeFi module** — liquid staking and EIP-4626 vault operations
 - `LiquidStakingClient`: sAVAX stake/unstake (instant + delayed), quotes, pool balance checks
 - `VaultClient`: generic EIP-4626 deposit/withdraw/quote for any vault on any chain
 - `agent.defi()` lazy accessor returning `{ staking, vaults }`
 - Known vault: yoUSD vault on Base (`0x0000000f2eb9f69274678c76222b35eec7588a65`, ~17.73% APY)
 - 9 new MCP tools (83 total), 395 tests
+
+### v1.3.x
+- Release hardening for exports and typings
+- YieldYak export fixes
+- package/release stability cleanup for downstream consumers
+
+### v1.4.x
+- **CoinGecko market intelligence**
+- price lookups, rankings, trending assets, historical data, search
+- `cg_*` MCP tools added for agent-native market research flows
+
+### v1.5.0
+- **Polymarket CLOB integration**
+- market search, market details, order book access, balance and position discovery
+- expanded Evalanche into prediction market workflows alongside DeFi + perps
+
+### v1.5.2 (current)
+- **RPC + Polymarket reliability pass**
+- fixed custom RPC chain ID mapping across supported EVM aliases
+- fixed Polymarket client construction to use Polygon chain ID explicitly
+- fixed MCP handler wiring for search, order book lookup, and positions
+- unsupported `pm_approve` / `pm_buy` / `pm_redeem` now fail honestly instead of pretending to work
+- added dYdX market reference exports, including `ZEC-USD`, for faster perp workflow integration
+- README / website / skill surface synced for the 1.5.2 release
 
 ### v2.0 (planned)
 - A2A protocol support (Agent Cards, task lifecycle)

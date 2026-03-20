@@ -2,15 +2,12 @@
  * Identity module exports.
  */
 
+export {
+  IDENTITY_REGISTRY,
+  REPUTATION_REGISTRY,
+  IDENTITY_ABI,
+  REPUTATION_ABI,
+  DOMAIN_SEPARATOR,
+} from './constants';
 export { IdentityResolver } from './resolver';
-export type { AgentIdentity, IdentityConfig, TrustLevel } from './types';
-export { InteropIdentityResolver } from '../interop/identity';
-export type {
-  AgentRegistration,
-  AgentServiceEntry,
-  EndpointVerification,
-  RegistrationBinding,
-  ServiceEndpoints,
-  TransportType,
-  TrustMode,
-} from '../interop/schemas';
+export type { TrustLevel, AgentIdentity, IdentityConfig } from './types';

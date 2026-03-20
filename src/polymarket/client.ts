@@ -119,6 +119,18 @@ export class PolymarketClient {
     }
   }
 
+
+  async searchMarkets(query: string, limit = 10): Promise<PolymarketMarket[]> {
+    const markets = await this.getMarkets({ limit: 100 });
+    const q = query.toLowerCase();
+    return markets
+      .filter((m) =>
+        ((m.question ?? '').toLowerCase().includes(q)) ||
+        ((m.description ?? '').toLowerCase().includes(q)),
+      )
+      .slice(0, limit);
+  }
+
   async getMarket(conditionId: string): Promise<PolymarketMarket | null> {
     try {
       const client = await this.getClient();
@@ -174,6 +186,11 @@ export class PolymarketClient {
         error instanceof Error ? error : undefined,
       );
     }
+  }
+
+
+  async getOrderbook(tokenId: string): Promise<PolymarketOrderBook> {
+    return this.getOrderBook(tokenId);
   }
 
   async placeOrder(params: PolymarketOrderParams): Promise<PolymarketOrderResult> {

@@ -56,10 +56,20 @@ async function buildConfig(): Promise<EvalancheConfig> {
   const networkName = process.env.AVALANCHE_NETWORK ?? 'avalanche';
 
   if (rpcUrl) {
-    const chainId = networkName === 'fuji' ? 43113 : 43114;
+    const chainIdMap: Record<string, number> = {
+      ethereum: 1,
+      optimism: 10,
+      bsc: 56,
+      polygon: 137,
+      base: 8453,
+      arbitrum: 42161,
+      avalanche: 43114,
+      fuji: 43113,
+    };
+    const chainId = chainIdMap[networkName] ?? 43114;
     config.network = { rpcUrl, chainId };
   } else {
-    config.network = networkName as 'avalanche' | 'fuji';
+    config.network = networkName as EvalancheConfig['network'];
   }
 
   // Identity (optional)

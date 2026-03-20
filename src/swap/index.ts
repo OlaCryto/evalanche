@@ -8,7 +8,9 @@
 
 import type { AgentSigner } from '../wallet/signer';
 import { ArenaSwapClient } from './arena';
+import type { ArenaSwapResult } from './arena';
 import { YieldYakClient, type YakChain } from './yak';
+import type { YakOffer, YakQuote, YakSwapResult } from './yak';
 
 export { ArenaSwapClient, ARENA_TOKEN_MANAGER, ARENA_TOKEN } from './arena';
 export type { ArenaTokenInfo, ArenaSwapResult } from './arena';

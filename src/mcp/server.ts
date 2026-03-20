@@ -1247,7 +1247,7 @@ export class EvalancheMCPServer {
 
   private getPolymarket(): PolymarketClient {
     if (!this.polymarket) {
-      this.polymarket = new PolymarketClient(this.agent.wallet, this.agent.provider);
+      this.polymarket = new PolymarketClient(this.agent.wallet, 137);
     }
     return this.polymarket;
 
@@ -2188,7 +2188,6 @@ export class EvalancheMCPServer {
           result = await defi.vaults.depositQuote(
             args.vaultAddress as string,
             args.assetAmount as string,
-            args.assetDecimals as number | undefined,
           );
           break;
         }
@@ -2198,8 +2197,6 @@ export class EvalancheMCPServer {
           const txResult = await defi.vaults.deposit(
             args.vaultAddress as string,
             args.assetAmount as string,
-            args.assetDecimals as number | undefined,
-            args.slippageBps as number | undefined,
           );
           result = { hash: txResult.hash, status: txResult.receipt.status };
           break;
@@ -2210,7 +2207,6 @@ export class EvalancheMCPServer {
           result = await defi.vaults.withdrawQuote(
             args.vaultAddress as string,
             args.shareAmount as string,
-            args.shareDecimals as number | undefined,
           );
           break;
         }
@@ -2220,8 +2216,6 @@ export class EvalancheMCPServer {
           const txResult = await defi.vaults.withdraw(
             args.vaultAddress as string,
             args.shareAmount as string,
-            args.shareDecimals as number | undefined,
-            args.slippageBps as number | undefined,
           );
           result = { hash: txResult.hash, status: txResult.receipt.status };
           break;
@@ -2229,9 +2223,7 @@ export class EvalancheMCPServer {
         // ─── CoinGecko Market Data ───
         case 'cg_price':
           result = await this.coingecko.price({
-            ids: args.ids as string | undefined,
-            symbols: args.symbols as string | undefined,
-            vs: args.vs as string | undefined,
+            ids: (args.ids ?? args.symbols ?? '') as string,
           });
           break;
 
@@ -2242,37 +2234,28 @@ export class EvalancheMCPServer {
         case 'cg_top_movers':
           result = await this.coingecko.topGainersLosers({
             duration: args.duration as string | undefined,
-            losers: args.losers as boolean | undefined,
             topCoins: args.topCoins as string | undefined,
           });
           break;
 
         case 'cg_markets':
           result = await this.coingecko.markets({
-            total: args.total as number | undefined,
-            category: args.category as string | undefined,
+            perPage: args.total as number | undefined,
+            vsCurrency: args.vs as string | undefined,
             order: args.order as string | undefined,
-            vs: args.vs as string | undefined,
           });
           break;
 
         case 'cg_search':
           result = await this.coingecko.search(
             args.query as string,
-            args.limit as number | undefined,
           );
           break;
 
         case 'cg_history':
           result = await this.coingecko.history({
             id: args.id as string,
-            days: args.days as string | undefined,
-            date: args.date as string | undefined,
-            from: args.from as string | undefined,
-            to: args.to as string | undefined,
-            interval: args.interval as string | undefined,
-            vs: args.vs as string | undefined,
-            ohlc: args.ohlc as boolean | undefined,
+            date: (args.date ?? args.from) as string,
           });
           break;
 
@@ -2281,47 +2264,36 @@ export class EvalancheMCPServer {
           break;
 
         // ─── Polymarket ───
-        case 'pm_search':
-          result = await this.getPolymarket().searchMarkets(
-            args.query as string,
-            args.limit as number | undefined,
-          );
+        case 'pm_search': {
+          const markets = await this.getPolymarket().getMarkets({
+            limit: (args.limit as number | undefined) ?? 50,
+          });
+          const q = String(args.query ?? '').toLowerCase();
+          result = markets
+            .filter((m) =>
+              ((m.question ?? '').toLowerCase().includes(q)) ||
+              ((m.description ?? '').toLowerCase().includes(q)),
+            )
+            .slice(0, (args.limit as number | undefined) ?? 10);
           break;
+        }
 
         case 'pm_market':
           result = await this.getPolymarket().getMarket(args.conditionId as string);
           break;
 
         case 'pm_positions':
-          result = await this.getPolymarket().getPositions(
-            (args.walletAddress as string) || this.agent.address,
-          );
+          result = await this.getPolymarket().getPositions();
           break;
 
         case 'pm_orderbook':
-          result = await this.getPolymarket().getOrderbook(args.tokenId as string);
+          result = await this.getPolymarket().getOrderBook(args.tokenId as string);
           break;
 
         case 'pm_approve':
-          result = await this.getPolymarket().approveUsdc(args.amount as string);
-          break;
-
         case 'pm_buy':
-          result = await this.getPolymarket().buy(
-            args.conditionId as string,
-            args.outcome as 'YES' | 'NO',
-            args.amountUSDC as string,
-            {
-              orderType: args.orderType as 'market' | 'limit' | undefined,
-              limitPrice: args.limitPrice as number | undefined,
-              maxSlippagePct: args.maxSlippagePct as number | undefined,
-            },
-          );
-          break;
-
         case 'pm_redeem':
-          result = await this.getPolymarket().redeem(args.conditionId as string);
-          break;
+          throw new Error('pm_approve / pm_buy / pm_redeem are not implemented in this build. Use low-level PolymarketClient.placeOrder after deriving tokenId and price.');
 
 
         default:

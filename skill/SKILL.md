@@ -3,7 +3,7 @@ name: evalanche
 description: >
   Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402),
   cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), destination gas funding (Gas.zip),
-  perpetual futures trading (dYdX v4), and DeFi operations (liquid staking + EIP-4626 vaults).
+  perpetual futures trading (dYdX v4), market intelligence (CoinGecko), prediction markets (Polymarket CLOB), and DeFi operations (liquid staking + EIP-4626 vaults).
   Supports 21+ EVM chains: Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and more.
   Agents generate and manage their own keys — no human input required.
   Use when: booting an autonomous agent wallet on any EVM chain, sending tokens, calling contracts,
@@ -16,6 +16,7 @@ description: >
   cross-chain transfers (Avalanche C↔X↔P), delegating stake, querying validators, signing messages,
   creating subnets, managing L1 validators, adding validators with BLS keys, querying node info,
   trading perpetual futures on dYdX v4 (100+ markets), searching for perp markets across venues,
+  querying CoinGecko market data, searching Polymarket markets and order books,
   staking/unstaking sAVAX via Benqi, depositing/withdrawing from EIP-4626 vaults (yoUSD, Morpho, Aave, etc).
   Don't use when: managing ENS (use moltbook scripts).
   Network: yes (EVM RPCs via Routescan + public fallbacks, dYdX Cosmos chain). Cost: gas fees per transaction.
@@ -79,7 +80,7 @@ metadata:
 
 # Evalanche — Multi-EVM Agent Wallet
 
-Headless wallet SDK with ERC-8004 identity, x402 payments, Li.Fi cross-chain liquidity (bridging + DEX aggregation + DeFi Composer), Gas.zip gas funding, dYdX v4 perpetuals, contract interaction helpers (approve-and-call + UUPS upgrade), and DeFi operations (liquid staking + EIP-4626 vaults). Works on 21+ EVM chains. 91 MCP tools. Works as CLI or MCP server.
+Headless wallet SDK with ERC-8004 identity, x402 payments, Li.Fi cross-chain liquidity (bridging + DEX aggregation + DeFi Composer), Gas.zip gas funding, dYdX v4 perpetuals, CoinGecko market intelligence, Polymarket market discovery, contract interaction helpers (approve-and-call + UUPS upgrade), and DeFi operations (liquid staking + EIP-4626 vaults). Works on 21+ EVM chains. 91 MCP tools. Works as CLI or MCP server.
 
 **Source:** https://github.com/iJaack/evalanche
 **License:** MIT

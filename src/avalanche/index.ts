@@ -8,18 +8,18 @@
  *   - Cross-chain transfers (AVAX)
  */
 
-export { AgentSigner, type AvalancheSigner } from './signer';
-export { RpcProvider, RpcProviders } from './provider';
-export { PlatformChainID, PrimaryAssetID, type AvalancheChain } from './types';
+export { createAvalancheSigner, type AvalancheSigner } from './signer';
+export { createAvalancheProvider, getAvalancheContext, clearProviderCache, type AvalancheProvider } from './provider';
+export type { ChainAlias, TransferResult, BalanceInfo, MultiChainBalance, StakeInfo, ValidatorInfo, MinStakeAmounts } from './types';
 
 // P-Chain exports
-export { addValidator, addDelegator, delegate, type ValidatorParams, type DelegatorParams } from './pchain';
+export { PChainOperations } from './pchain';
 
 // X-Chain exports
-export { createAsset, mintAsset, exportXChain, importXChain, type AssetParams } from './xchain';
+export { XChainOperations } from './xchain';
 
 // Cross-chain exports
-export { crossChainTransfer, type CrossChainParams } from './crosschain';
+export { CrossChainTransfer } from './crosschain';
 
-// Platform CLI (deprecated, use programmatic APIs)
-export { Avalanche as AvalanchePlatformCLI } from './platform-cli';
+// Platform CLI
+export { PlatformCLI, type PlatformCLIResult, type SubnetCreateResult, type L1RegisterResult, type NodeInfoResult, type AddValidatorParams, type DelegateParams, type ConvertToL1Params, type PChainTransferParams, type CrossChainTransferParams } from './platform-cli';
