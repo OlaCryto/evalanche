@@ -708,7 +708,14 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.5.2 (current)
+### v1.6.0 (current)
+- **Sovereign Polymarket execution**
+- `pm_approve` and `pm_buy` now work through the local sovereign wallet path
+- Polymarket API-key handling hardened for wallets with existing credentials
+- large coverage expansion across Avalanche provider/cross-chain, utils, transaction builder, YieldYak, reputation, x402 facilitator, and secrets
+- 433 tests passing
+
+### v1.5.2
 - **RPC + Polymarket reliability pass**
 - fixed custom RPC chain ID mapping across supported EVM aliases
 - fixed Polymarket client construction to use Polygon chain ID explicitly
