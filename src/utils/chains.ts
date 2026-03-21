@@ -103,7 +103,7 @@ export const CHAINS: Record<number, ChainConfig> = {
     name: 'Polygon',
     shortName: 'matic',
     currency: { name: 'POL', symbol: 'POL', decimals: 18 },
-    rpc: ['https://polygon-rpc.com', routescanRpc(137)],
+    rpc: ['https://polygon-bor-rpc.publicnode.com', 'https://polygon-rpc.com', routescanRpc(137)],
     explorer: 'https://polygonscan.com',
     routescanExplorer: 'https://polygon.routescan.io',
     lifiChainKey: 'POL',
