@@ -717,7 +717,12 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.1 (current)
+### v1.7.2 (current)
+- **Release pipeline validation**
+- follows `1.7.1` with the ClawHub publish slug fixed in CI
+- intended to validate the full tag-driven release flow end-to-end, including skill publication
+
+### v1.7.1
 - **Release automation**
 - version-tag pushes now drive the release flow end-to-end
 - GitHub Actions creates the GitHub Release from `RELEASE_NOTES_X.Y.Z.md`
