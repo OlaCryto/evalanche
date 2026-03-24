@@ -116,6 +116,7 @@ jobs:
         run: |
           CHANGELOG="$(cat "${{ steps.meta.outputs.release_notes_file }}")"
           clawhub publish skill \
+            --slug evalanche \
             --version "${{ steps.meta.outputs.version }}" \
             --tags latest \
             --changelog "$CHANGELOG"
