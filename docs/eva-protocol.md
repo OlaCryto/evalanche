@@ -2,8 +2,8 @@
 
 > For agent builders integrating trust-weighted news verification on Avalanche.
 
-**Status:** Draft v1  
-**Updated:** 2026-03-18  
+**Status:** Draft v2  
+**Updated:** 2026-03-24  
 **Audience:** Builders integrating Eva Protocol into autonomous agents, backends, or SDKs.
 
 ---
@@ -638,16 +638,17 @@ async function verifyArticle(url: string) {
 
 ### Example B — submit through the curator path
 
+`POST /api/submit` runs the full verification pipeline. Required fields: `url`, `articleId`. Optional: `curatorAgentId` (for logging).
+
 ```ts
-async function submitCuratedArticle(url: string, articleId: number, curatorAgentId: number) {
+async function submitCuratedArticle(url: string, articleId: number, curatorAgentId?: number) {
   const res = await fetch('https://eva.jaack.me/api/submit', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      curatorAgentId,
-      articleHash: '0xplaceholder',
       url,
       articleId,
+      ...(curatorAgentId !== undefined ? { curatorAgentId } : {}),
     }),
   });
 
@@ -655,6 +656,7 @@ async function submitCuratedArticle(url: string, articleId: number, curatorAgent
     throw new Error(`Submit failed: ${res.status} ${await res.text()}`);
   }
 
+  // Response shape: { success, overallScore, ipfsURI, claimCount, routescanClaimCount, report }
   return res.json();
 }
 ```
