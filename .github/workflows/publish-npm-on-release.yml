@@ -1,16 +1,18 @@
-name: Publish to npm on GitHub Release
+name: Release on Version Tag
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
-  publish:
-    if: github.event.release.prerelease == false
+  release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
+    env:
+      NODE_VERSION: '20'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,22 +22,48 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Upgrade npm
         run: npm install -g npm@latest
 
-      - name: Validate release tag matches package version
+      - name: Derive release metadata
+        id: meta
         shell: bash
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          RELEASE_NOTES_FILE="RELEASE_NOTES_${VERSION}.md"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_notes_file=${RELEASE_NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          echo "version: ${VERSION}"
+          echo "release notes file: ${RELEASE_NOTES_FILE}"
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          TAG="${{ steps.meta.outputs.version }}"
           PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(node -p "require('./package.json').name")
+          RELEASE_NOTES_FILE="${{ steps.meta.outputs.release_notes_file }}"
+
           echo "release tag: $TAG"
           echo "package.json version: $PKG_VERSION"
+          echo "package name: $PKG_NAME"
+
           if [ "$TAG" != "$PKG_VERSION" ]; then
             echo "Release tag does not match package.json version"
+            exit 1
+          fi
+
+          if [ "$PKG_NAME" != "evalanche" ]; then
+            echo "Unexpected package name: $PKG_NAME"
+            exit 1
+          fi
+
+          if [ ! -f "$RELEASE_NOTES_FILE" ]; then
+            echo "Missing release notes file: $RELEASE_NOTES_FILE"
             exit 1
           fi
 
@@ -51,19 +79,43 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Validate package name
-        run: |
-          PKG_NAME=$(node -p "require('./package.json').name")
-          if [ "$PKG_NAME" != "evalanche" ]; then
-            echo "Unexpected package name: $PKG_NAME"
-            exit 1
-          fi
-
       - name: Preflight package identity
         run: |
           echo "package: $(node -p "require('./package.json').name")"
           echo "version: $(node -p "require('./package.json').version")"
           npm view evalanche version || true
 
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Evalanche v${{ steps.meta.outputs.version }}
+          body_path: ${{ steps.meta.outputs.release_notes_file }}
+          generate_release_notes: false
+          make_latest: true
+
       - name: Publish to npm
         run: npm publish --provenance --access public --registry=https://registry.npmjs.org/
+
+      - name: Install ClawHub CLI
+        run: npm install -g clawhub@latest
+
+      - name: Authenticate ClawHub CLI
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
+          if [ -z "$CLAWHUB_TOKEN" ]; then
+            echo "Missing CLAWHUB_TOKEN secret"
+            exit 1
+          fi
+          clawhub login --token "$CLAWHUB_TOKEN" --no-browser
+          clawhub whoami
+
+      - name: Publish ClawHub skill
+        shell: bash
+        run: |
+          CHANGELOG="$(cat "${{ steps.meta.outputs.release_notes_file }}")"
+          clawhub publish skill \
+            --version "${{ steps.meta.outputs.version }}" \
+            --tags latest \
+            --changelog "$CHANGELOG"
