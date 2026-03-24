@@ -15,12 +15,12 @@ jobs:
       NODE_VERSION: '20'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5.0.1
         with:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6.3.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
@@ -85,14 +85,27 @@ jobs:
           echo "version: $(node -p "require('./package.json').version")"
           npm view evalanche version || true
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Evalanche v${{ steps.meta.outputs.version }}
-          body_path: ${{ steps.meta.outputs.release_notes_file }}
-          generate_release_notes: false
-          make_latest: true
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          TITLE="Evalanche v${{ steps.meta.outputs.version }}"
+          NOTES_FILE="${{ steps.meta.outputs.release_notes_file }}"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+          else
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+          fi
 
       - name: Publish to npm
         run: npm publish --provenance --access public --registry=https://registry.npmjs.org/
