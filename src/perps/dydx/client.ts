@@ -14,19 +14,35 @@ type DydxSdk = typeof import('@dydxprotocol/v4-client-js');
 
 let dydxSdkPromise: Promise<DydxSdk> | null = null;
 
+function normalizeDydxSdk(moduleValue: unknown): DydxSdk {
+  if (moduleValue && typeof moduleValue === 'object') {
+    const direct = moduleValue as Partial<DydxSdk>;
+    if (direct.LocalWallet && direct.CompositeClient) return direct as DydxSdk;
+
+    const defaultExport = (moduleValue as { default?: Partial<DydxSdk> }).default;
+    if (defaultExport?.LocalWallet && defaultExport.CompositeClient) {
+      return defaultExport as DydxSdk;
+    }
+  }
+
+  throw new EvalancheError(
+    'Loaded dYdX SDK is missing required exports',
+    EvalancheErrorCode.DYDX_ERROR,
+  );
+}
+
 async function loadDydxSdk(): Promise<DydxSdk> {
   if (dydxSdkPromise) return dydxSdkPromise;
 
   dydxSdkPromise = (async () => {
     try {
-      return await import('@dydxprotocol/v4-client-js') as DydxSdk;
+      return normalizeDydxSdk(await import('@dydxprotocol/v4-client-js'));
     } catch (importError) {
       try {
-        const req = typeof require === 'function'
-          ? require
-          : createRequire(import.meta.url);
-        return req('@dydxprotocol/v4-client-js') as DydxSdk;
+        const req = createRequire(import.meta.url);
+        return normalizeDydxSdk(req('@dydxprotocol/v4-client-js'));
       } catch (requireError) {
+        dydxSdkPromise = null;
         throw new EvalancheError(
           'Failed to load dYdX SDK. Install or repair @dydxprotocol/v4-client-js before using perps.',
           EvalancheErrorCode.DYDX_ERROR,
@@ -176,6 +192,7 @@ export class DydxClient implements PerpVenue {
       const adjustedPrice = side === sdk.OrderSide.BUY ? price * 1.01 : price * 0.99;
       const goodTil = Math.floor(Date.now() / 1000) + 120;
       const clientId = this.randomClientId();
+      const size = this.toFiniteNumber(params.size, 'size');
 
       await this.client!.placeOrder(
         this.subaccount!,
@@ -183,7 +200,7 @@ export class DydxClient implements PerpVenue {
         sdk.OrderType.MARKET,
         side,
         adjustedPrice,
-        Number(params.size),
+        size,
         clientId,
         sdk.OrderTimeInForce.FOK,
         goodTil,
@@ -219,14 +236,16 @@ export class DydxClient implements PerpVenue {
       const tif = await this.mapTimeInForce(params.timeInForce);
       const goodTil = params.goodTilSeconds ?? (Math.floor(Date.now() / 1000) + 3600);
       const clientId = this.randomClientId();
+      const price = this.toFiniteNumber(params.price, 'price');
+      const size = this.toFiniteNumber(params.size, 'size');
 
       await this.client!.placeOrder(
         this.subaccount!,
         params.market,
         sdk.OrderType.LIMIT,
         side,
-        Number(params.price),
-        Number(params.size),
+        price,
+        size,
         clientId,
         tif,
         goodTil,
@@ -351,6 +370,17 @@ export class DydxClient implements PerpVenue {
 
   private randomClientId(): number {
     return Math.floor(Math.random() * 1_000_000_000);
+  }
+
+  private toFiniteNumber(value: string | number, field: string): number {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(parsed)) {
+      throw new EvalancheError(
+        `Invalid dYdX ${field}: ${value}`,
+        EvalancheErrorCode.PERPS_ERROR,
+      );
+    }
+    return parsed;
   }
 
   private getWalletAddress(): string {

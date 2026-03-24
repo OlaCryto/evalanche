@@ -22,6 +22,8 @@ export interface IdentityConfig {
   agentId: string;
   /** Registry address (raw 0x or CAIP-10 format) */
   registry?: string;
+  /** Reputation registry address (raw 0x or CAIP-10 format) */
+  reputationRegistry?: string;
   /** Chain ID for CAIP-10 formatting (default: 43114 for Avalanche) */
   chainId?: number;
 }

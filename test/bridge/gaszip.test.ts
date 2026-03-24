@@ -32,16 +32,21 @@ describe('GasZipClient', () => {
   });
 
   describe('getQuote', () => {
-    it('should fetch a quote from Gas.zip API', async () => {
+    it('should fetch a quote from LI.FI Gas.zip routing', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          quote: {
-            fromToken: 'ETH',
-            fromAmount: '0.005',
-            toAmount: '0.01',
-            depositAddress: '0xgaszipdepositaddress',
-            estimatedTime: 30,
+          tool: 'gasZipBridge',
+          action: {
+            fromToken: { symbol: 'ETH' },
+          },
+          estimate: {
+            toAmount: '10000000000000000',
+            executionDuration: 30,
+          },
+          transactionRequest: {
+            to: '0xgaszipdepositaddress',
+            value: '10000000000000000',
           },
         }),
       });
@@ -50,14 +55,14 @@ describe('GasZipClient', () => {
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const callUrl = mockFetch.mock.calls[0][0] as string;
-      expect(callUrl).toContain('gas.zip');
-      expect(callUrl).toContain('fromChainId=1');
-      expect(callUrl).toContain('toChainId=42161');
+      expect(callUrl).toContain('li.quest/v1/quote');
+      expect(callUrl).toContain('fromChain=1');
+      expect(callUrl).toContain('toChain=42161');
 
       expect(quote.fromChainId).toBe(1);
       expect(quote.toChainId).toBe(42161);
       expect(quote.depositAddress).toBe('0xgaszipdepositaddress');
-      expect(quote.fromAmount).toBe('0.005');
+      expect(quote.fromAmount).toBe('0.01');
       expect(quote.toAmount).toBe('0.01');
     });
 
@@ -77,12 +82,17 @@ describe('GasZipClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          quote: {
-            fromToken: 'ETH',
-            fromAmount: '0.005',
-            toAmount: '0.01',
-            depositAddress: '0xgaszipdepositaddress',
-            estimatedTime: 30,
+          tool: 'gasZipBridge',
+          action: {
+            fromToken: { symbol: 'ETH' },
+          },
+          estimate: {
+            toAmount: '10000000000000000',
+            executionDuration: 30,
+          },
+          transactionRequest: {
+            to: '0xgaszipdepositaddress',
+            value: '10000000000000000',
           },
         }),
       });
@@ -104,12 +114,17 @@ describe('GasZipClient', () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          quote: {
-            fromToken: 'ETH',
-            fromAmount: '0.005',
-            toAmount: '0.01',
-            depositAddress: '',
-            estimatedTime: 30,
+          tool: 'gasZipBridge',
+          action: {
+            fromToken: { symbol: 'ETH' },
+          },
+          estimate: {
+            toAmount: '10000000000000000',
+            executionDuration: 30,
+          },
+          transactionRequest: {
+            to: '',
+            value: '10000000000000000',
           },
         }),
       });

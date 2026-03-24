@@ -12,7 +12,7 @@ export class IdentityResolver {
   private readonly provider: JsonRpcProvider;
   private readonly config: IdentityConfig;
   private readonly identityContract: Contract;
-  private readonly reputationContract: Contract;
+  private readonly reputationContract: Contract | null;
   private readonly cache: TTLCache<AgentIdentity>;
   private readonly chainId: number;
 
@@ -23,8 +23,12 @@ export class IdentityResolver {
     this.cache = new TTLCache<AgentIdentity>(5 * 60 * 1000); // 5 minute TTL
 
     const registryAddress = this.parseRegistryAddress(config.registry ?? IDENTITY_REGISTRY);
+    const reputationRegistry = config.reputationRegistry
+      ?? (this.chainId === 43114 ? REPUTATION_REGISTRY : undefined);
     this.identityContract = new Contract(registryAddress, IDENTITY_ABI, this.provider);
-    this.reputationContract = new Contract(REPUTATION_REGISTRY, REPUTATION_ABI, this.provider);
+    this.reputationContract = reputationRegistry
+      ? new Contract(this.parseRegistryAddress(reputationRegistry), REPUTATION_ABI, this.provider)
+      : null;
   }
 
   /**
@@ -83,7 +87,9 @@ export class IdentityResolver {
       const [metadataResult, ownerResult, reputationResult] = await Promise.allSettled([
         this.identityContract.getFunction('tokenURI')(agentIdBigInt) as Promise<string>,
         this.identityContract.getFunction('ownerOf')(agentIdBigInt) as Promise<string>,
-        this.reputationContract.getFunction('getReputation')(agentIdBigInt) as Promise<bigint>,
+        this.reputationContract
+          ? this.reputationContract.getFunction('getReputation')(agentIdBigInt) as Promise<bigint>
+          : Promise.reject(new Error('No reputation registry configured for this chain')),
       ]);
 
       const metadataUri = metadataResult.status === 'fulfilled' ? metadataResult.value : null;

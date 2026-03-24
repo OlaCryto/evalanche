@@ -11,6 +11,108 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 1_000_000;
 const PRIVATE_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
+function createTooLargeError(actualBytes: number, maxBytes: number): EvalancheError {
+  return new EvalancheError(
+    `Response too large: ${actualBytes} bytes exceeds max ${maxBytes}`,
+    EvalancheErrorCode.NETWORK_ERROR,
+  );
+}
+
+function wrapResponseWithBodyLimit(response: Response, maxBytes: number): Response {
+  const originalArrayBuffer = typeof response.arrayBuffer === 'function'
+    ? response.arrayBuffer.bind(response)
+    : null;
+  const originalText = typeof response.text === 'function'
+    ? response.text.bind(response)
+    : null;
+  const originalJson = typeof response.json === 'function'
+    ? response.json.bind(response)
+    : null;
+  let bytesPromise: Promise<Uint8Array> | null = null;
+
+  const readBytes = async (): Promise<Uint8Array> => {
+    if (bytesPromise) return bytesPromise;
+
+    bytesPromise = (async () => {
+      if (!response.body) {
+        if (originalArrayBuffer) {
+          const bytes = new Uint8Array(await originalArrayBuffer());
+          if (bytes.byteLength > maxBytes) throw createTooLargeError(bytes.byteLength, maxBytes);
+          return bytes;
+        }
+
+        if (originalText) {
+          const text = await originalText();
+          const bytes = new TextEncoder().encode(text);
+          if (bytes.byteLength > maxBytes) throw createTooLargeError(bytes.byteLength, maxBytes);
+          return bytes;
+        }
+
+        if (originalJson) {
+          const jsonValue = await originalJson();
+          const bytes = new TextEncoder().encode(JSON.stringify(jsonValue));
+          if (bytes.byteLength > maxBytes) throw createTooLargeError(bytes.byteLength, maxBytes);
+          return bytes;
+        }
+
+        return new Uint8Array();
+      }
+
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+        total += chunk.byteLength;
+        if (total > maxBytes) throw createTooLargeError(total, maxBytes);
+        chunks.push(chunk);
+      }
+
+      const combined = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      return combined;
+    })();
+
+    return bytesPromise;
+  };
+
+  return new Proxy(response, {
+    get(target, prop, receiver) {
+      if (prop === 'arrayBuffer') {
+        return async () => {
+          const bytes = await readBytes();
+          return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+        };
+      }
+      if (prop === 'text') {
+        return async () => {
+          const bytes = await readBytes();
+          return new TextDecoder().decode(bytes);
+        };
+      }
+      if (prop === 'json') {
+        return async () => JSON.parse(await (receiver as Response).text()) as unknown;
+      }
+      if (prop === 'blob') {
+        return async () => {
+          const bytes = await readBytes();
+          return new Blob([Uint8Array.from(bytes)]);
+        };
+      }
+
+      const value = Reflect.get(target, prop, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }) as Response;
+}
+
 function isPrivateIpv4(hostname: string): boolean {
   const parts = hostname.split('.').map(Number);
   if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
@@ -70,13 +172,10 @@ export async function safeFetch(url: string | URL, options: SafeFetchOptions = {
       : null;
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     if (contentLength && Number(contentLength) > maxBytes) {
-      throw new EvalancheError(
-        `Response too large: ${contentLength} bytes exceeds max ${maxBytes}`,
-        EvalancheErrorCode.NETWORK_ERROR,
-      );
+      throw createTooLargeError(Number(contentLength), maxBytes);
     }
 
-    return response;
+    return wrapResponseWithBodyLimit(response, maxBytes);
   } catch (error) {
     if (error instanceof EvalancheError) throw error;
     const reason = error instanceof Error ? error.message : String(error);

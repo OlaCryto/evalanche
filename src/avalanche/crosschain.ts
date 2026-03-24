@@ -10,6 +10,8 @@ import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
  * Handles the export→wait→import two-step flow for all chain pairs.
  */
 export class CrossChainTransfer {
+  private static readonly IMPORT_POLL_INTERVAL_MS = 2_000;
+  private static readonly IMPORT_POLL_TIMEOUT_MS = 30_000;
   private readonly signer: AvalancheSigner;
   private readonly provider: AvalancheProvider;
   private readonly xChain: XChainOperations;
@@ -50,37 +52,37 @@ export class CrossChainTransfer {
       switch (`${from}→${to}`) {
         case 'X→P': {
           exportTxId = await this.xChain.exportTo(amount, 'P');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('P', 'X');
           importTxId = await this.pChain.importFrom('X');
           break;
         }
         case 'X→C': {
           exportTxId = await this.xChain.exportTo(amount, 'C');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('C', 'X');
           importTxId = await this.importToC('X');
           break;
         }
         case 'P→X': {
           exportTxId = await this.pChain.exportTo(amount, 'X');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('X', 'P');
           importTxId = await this.xChain.importFrom('P');
           break;
         }
         case 'P→C': {
           exportTxId = await this.pChain.exportTo(amount, 'C');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('C', 'P');
           importTxId = await this.importToC('P');
           break;
         }
         case 'C→X': {
           exportTxId = await this.exportFromC(amount, 'X');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('X', 'C');
           importTxId = await this.xChain.importFrom('C');
           break;
         }
         case 'C→P': {
           exportTxId = await this.exportFromC(amount, 'P');
-          await this.waitForConfirmation();
+          await this.waitForImportAvailability('P', 'C');
           importTxId = await this.pChain.importFrom('C');
           break;
         }
@@ -131,8 +133,22 @@ export class CrossChainTransfer {
     return response.txID;
   }
 
-  /** Wait for cross-chain confirmation (atomic UTXOs typically available in 1-3s) */
-  private async waitForConfirmation(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  /** Poll until the exported atomic UTXOs are visible on the destination chain. */
+  private async waitForImportAvailability(
+    destination: ChainAlias,
+    source: ChainAlias,
+  ): Promise<void> {
+    const deadline = Date.now() + CrossChainTransfer.IMPORT_POLL_TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      const atomicUtxos = await this.signer.getAtomicUTXOs(destination, source);
+      if (atomicUtxos.getUTXOs().length > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, CrossChainTransfer.IMPORT_POLL_INTERVAL_MS));
+    }
+
+    throw new EvalancheError(
+      `Timed out waiting for ${source}→${destination} atomic UTXOs to become available`,
+      EvalancheErrorCode.CROSS_CHAIN_ERROR,
+    );
   }
 }

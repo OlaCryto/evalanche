@@ -2,12 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IdentityResolver } from '../../src/identity/resolver';
 import { JsonRpcProvider, Contract } from 'ethers';
 
+let contractQueue: Array<{ getFunction: ReturnType<typeof vi.fn> }> = [];
+
 // Mock ethers Contract
 vi.mock('ethers', async () => {
   const actual = await vi.importActual('ethers');
+  class MockContract {
+    constructor() {
+      return contractQueue.shift() ?? {
+        getFunction: vi.fn().mockReturnValue(vi.fn().mockResolvedValue(undefined)),
+      };
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn(),
+    Contract: MockContract,
   };
 });
 
@@ -20,8 +29,6 @@ describe('IdentityResolver', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProvider = {} as JsonRpcProvider;
-
-    // Set up Contract mock — resolver uses getFunction() pattern (ethers v6)
     const mockIdentityContract = {
       getFunction: vi.fn().mockImplementation((name: string) => {
         if (name === 'tokenURI') return vi.fn().mockResolvedValue('ipfs://QmTest123');
@@ -35,13 +42,7 @@ describe('IdentityResolver', () => {
         return vi.fn().mockRejectedValue(new Error('Unknown function'));
       }),
     };
-
-    let callCount = 0;
-    vi.mocked(Contract).mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) return mockIdentityContract as unknown as Contract;
-      return mockReputationContract as unknown as Contract;
-    });
+    contractQueue = [mockIdentityContract, mockReputationContract];
   });
 
   describe('deriveTrustLevel', () => {
@@ -129,13 +130,7 @@ describe('IdentityResolver', () => {
           return vi.fn().mockRejectedValue(new Error('Network error'));
         }),
       };
-
-      let callCount = 0;
-      vi.mocked(Contract).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return mockIdentityContract as unknown as Contract;
-        return mockReputationContract as unknown as Contract;
-      });
+      contractQueue = [mockIdentityContract, mockReputationContract];
 
       const resolver = new IdentityResolver(mockProvider, {
         agentId: TEST_AGENT_ID,
@@ -163,13 +158,7 @@ describe('IdentityResolver', () => {
           return vi.fn().mockResolvedValue(BigInt(150)); // Over 100
         }),
       };
-
-      let callCount = 0;
-      vi.mocked(Contract).mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return mockIdentityContract as unknown as Contract;
-        return mockReputationContract as unknown as Contract;
-      });
+      contractQueue = [mockIdentityContract, mockReputationContract];
 
       const resolver = new IdentityResolver(mockProvider, {
         agentId: TEST_AGENT_ID,

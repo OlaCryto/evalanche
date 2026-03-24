@@ -2,11 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheErrorCode } from '../../src/utils/errors';
 
 // ─── Mock ethers ──────────────────────────────────────────────────────────────
+let contractMock: ReturnType<typeof makeContractMock>;
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ethers')>();
+  class MockContract {
+    constructor() {
+      return contractMock ?? makeContractMock();
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn(),
+    Contract: MockContract,
   };
 });
 
@@ -68,7 +74,7 @@ describe('LiquidStakingClient — constants', () => {
 
 describe('LiquidStakingClient.sAvaxStakeQuote', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns a stake quote with shares and rate', async () => {
@@ -81,9 +87,9 @@ describe('LiquidStakingClient.sAvaxStakeQuote', () => {
   });
 
   it('wraps contract errors in CONTRACT_CALL_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       getSharesByPooledAvax: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     await expect(client.sAvaxStakeQuote('10')).rejects.toMatchObject({
@@ -96,7 +102,7 @@ describe('LiquidStakingClient.sAvaxStakeQuote', () => {
 
 describe('LiquidStakingClient.sAvaxStake', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('stakes AVAX and returns transaction result', async () => {
@@ -108,9 +114,9 @@ describe('LiquidStakingClient.sAvaxStake', () => {
   });
 
   it('wraps stake errors in TRANSACTION_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       submit: vi.fn().mockRejectedValue(new Error('out of gas')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     await expect(client.sAvaxStake('10')).rejects.toMatchObject({
@@ -123,7 +129,7 @@ describe('LiquidStakingClient.sAvaxStake', () => {
 
 describe('LiquidStakingClient.sAvaxUnstakeQuote', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns an unstake quote with pool balance and instant flag', async () => {
@@ -136,9 +142,9 @@ describe('LiquidStakingClient.sAvaxUnstakeQuote', () => {
   });
 
   it('sets isInstant to false when pool is too low', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       instantPoolBalance: vi.fn().mockResolvedValue(POOL_BALANCE_LOW),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     const quote = await client.sAvaxUnstakeQuote('10');
@@ -151,7 +157,7 @@ describe('LiquidStakingClient.sAvaxUnstakeQuote', () => {
 
 describe('LiquidStakingClient.sAvaxUnstakeInstant', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('unstakes sAVAX instantly and returns transaction result', async () => {
@@ -163,9 +169,9 @@ describe('LiquidStakingClient.sAvaxUnstakeInstant', () => {
   });
 
   it('throws STAKE_POOL_INSUFFICIENT when pool is too low', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       instantPoolBalance: vi.fn().mockResolvedValue(POOL_BALANCE_LOW),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     await expect(client.sAvaxUnstakeInstant('10')).rejects.toMatchObject({
@@ -174,9 +180,9 @@ describe('LiquidStakingClient.sAvaxUnstakeInstant', () => {
   });
 
   it('throws INSUFFICIENT_BALANCE when wallet balance is too low', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       balanceOf: vi.fn().mockResolvedValue(WALLET_BALANCE_LOW),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     await expect(client.sAvaxUnstakeInstant('10')).rejects.toMatchObject({
@@ -189,7 +195,7 @@ describe('LiquidStakingClient.sAvaxUnstakeInstant', () => {
 
 describe('LiquidStakingClient.sAvaxUnstakeDelayed', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('requests delayed unstake and returns transaction result', async () => {
@@ -201,9 +207,9 @@ describe('LiquidStakingClient.sAvaxUnstakeDelayed', () => {
   });
 
   it('throws INSUFFICIENT_BALANCE when wallet balance is too low', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       balanceOf: vi.fn().mockResolvedValue(WALLET_BALANCE_LOW),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new LiquidStakingClient(makeMockSigner());
     await expect(client.sAvaxUnstakeDelayed('10')).rejects.toMatchObject({

@@ -1,3 +1,4 @@
+import { formatEther, isAddress } from 'ethers';
 import type { AgentSigner } from '../wallet/signer';
 import { TransactionBuilder } from '../wallet/transaction';
 import { ReputationReporter } from '../reputation/reporter';
@@ -8,6 +9,8 @@ import type { NegotiationClient, Proposal } from './negotiation';
 export interface SettlementParams {
   /** Proposal ID to settle */
   proposalId: string;
+  /** EVM recipient address if the proposal stores only an agent identifier */
+  recipientAddress?: string;
   /** Reputation score to give the counterparty (0-100) */
   reputationScore: number;
   /** Optional metadata for the reputation feedback */
@@ -81,16 +84,23 @@ export class SettlementClient {
     }
 
     const agreedPrice = this._negotiation.getAgreedPrice(params.proposalId);
+    const recipientAddress = params.recipientAddress
+      ?? proposal.toAddress
+      ?? (isAddress(proposal.toAgentId) ? proposal.toAgentId : undefined);
+
+    if (!recipientAddress || !isAddress(recipientAddress)) {
+      throw new EvalancheError(
+        `No valid recipient address configured for proposal ${params.proposalId}`,
+        EvalancheErrorCode.SETTLEMENT_ERROR,
+      );
+    }
 
     // Step 1: Send payment to the seller
-    // The price is in wei, but TransactionBuilder.send() expects human-readable ETH.
-    // We pass it as raw data to avoid conversion issues.
     let paymentTxHash: string;
     try {
-      const { formatEther } = await import('ethers');
       const humanReadable = formatEther(BigInt(agreedPrice));
       const txResult = await this._txBuilder.send({
-        to: proposal.toAgentId, // In a full implementation, resolve agentId → address
+        to: recipientAddress,
         value: humanReadable,
       });
       paymentTxHash = txResult.hash;

@@ -11,6 +11,8 @@ export interface Proposal {
   fromAgentId: string;
   /** Agent ID of the target (seller) */
   toAgentId: string;
+  /** Optional settlement address for the seller */
+  toAddress?: string;
   /** Short description of the task */
   task: string;
   /** Offered price in wei */
@@ -66,6 +68,7 @@ export class NegotiationClient {
   propose(params: {
     fromAgentId: string;
     toAgentId: string;
+    toAddress?: string;
     task: string;
     price: string;
     chainId: number;
@@ -84,6 +87,7 @@ export class NegotiationClient {
       id,
       fromAgentId: params.fromAgentId,
       toAgentId: params.toAgentId,
+      toAddress: params.toAddress,
       task: params.task,
       price: params.price,
       chainId: params.chainId,

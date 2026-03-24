@@ -453,6 +453,8 @@ Interpretation:
 
 Once your x402 client settles the payment, retry with a `PAYMENT-RESPONSE` header.
 
+If you are using Evalanche `1.7.0+` as the x402 client/server layer for your own services, build the payment proof from the fresh `402` challenge each time. Evalanche now treats proofs as single-use and binds them to the request path/body to prevent replay.
+
 ```ts
 const res = await fetch('https://eva.jaack.me/api/verify', {
   method: 'POST',

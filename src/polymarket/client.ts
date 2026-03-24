@@ -48,6 +48,8 @@ export interface PolymarketOrderParams {
   price: number;
   size: number;
   side: PolymarketSide;
+  tickSize?: string;
+  negRisk?: boolean;
 }
 
 export interface PolymarketOrderResult {
@@ -381,7 +383,10 @@ export class PolymarketClient {
           size: params.size,
           side: params.side === PolymarketSide.BUY ? Side.BUY : Side.SELL,
         },
-        { tickSize: '0.01', negRisk: false },
+        {
+          tickSize: params.tickSize ?? '0.01',
+          negRisk: params.negRisk ?? false,
+        },
       );
 
       return {

@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EvalancheErrorCode } from '../../src/utils/errors';
 
+let contractInstance: Record<string, unknown> = {};
+
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ethers')>();
+  class MockContract {
+    constructor() {
+      return contractInstance;
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn(),
+    Contract: MockContract,
   };
 });
 
@@ -25,6 +32,7 @@ function makeMockSigner() {
 describe('approveAndCall', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    contractInstance = {};
   });
 
   it('approves first, then executes follow-up contract call', async () => {
@@ -32,7 +40,7 @@ describe('approveAndCall', () => {
       hash: '0xapprovetx',
       wait: vi.fn().mockResolvedValue({ status: 1 }),
     });
-    vi.mocked(Contract).mockImplementation(() => ({ approve }) as unknown as InstanceType<typeof Contract>);
+    contractInstance = { approve };
 
     const signer = makeMockSigner();
     const result = await approveAndCall(
@@ -58,9 +66,9 @@ describe('approveAndCall', () => {
   });
 
   it('wraps approve failures as CONTRACT_CALL_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => ({
+    contractInstance = {
       approve: vi.fn().mockRejectedValue(new Error('approve reverted')),
-    }) as unknown as InstanceType<typeof Contract>);
+    };
 
     const signer = makeMockSigner();
     await expect(
@@ -78,6 +86,7 @@ describe('approveAndCall', () => {
 describe('upgradeProxy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    contractInstance = {};
   });
 
   it('calls upgradeToAndCall and returns tx metadata', async () => {
@@ -85,9 +94,7 @@ describe('upgradeProxy', () => {
       hash: '0xupgradetx',
       wait: vi.fn().mockResolvedValue({ status: 1 }),
     });
-    vi.mocked(Contract).mockImplementation(() => ({
-      upgradeToAndCall,
-    }) as unknown as InstanceType<typeof Contract>);
+    contractInstance = { upgradeToAndCall };
 
     const signer = makeMockSigner();
     const result = await upgradeProxy(
@@ -109,9 +116,7 @@ describe('upgradeProxy', () => {
       hash: '0xupgradetx2',
       wait: vi.fn().mockResolvedValue({ status: 1 }),
     });
-    vi.mocked(Contract).mockImplementation(() => ({
-      upgradeToAndCall,
-    }) as unknown as InstanceType<typeof Contract>);
+    contractInstance = { upgradeToAndCall };
 
     const signer = makeMockSigner();
     await upgradeProxy(

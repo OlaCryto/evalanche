@@ -3,14 +3,21 @@ import { JsonRpcProvider } from 'ethers';
 import { InteropIdentityResolver } from '../../src/interop/identity';
 import type { AgentRegistration } from '../../src/interop/schemas';
 
+let contractInstance: { getFunction: ReturnType<typeof vi.fn> } = {
+  getFunction: vi.fn().mockReturnValue(vi.fn().mockResolvedValue('https://example.com/agent.json')),
+};
+
 // Mock ethers Contract
 vi.mock('ethers', async () => {
   const actual = await vi.importActual<typeof import('ethers')>('ethers');
+  class MockContract {
+    constructor() {
+      return contractInstance;
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn().mockImplementation(() => ({
-      getFunction: vi.fn().mockReturnValue(vi.fn().mockResolvedValue('https://example.com/agent.json')),
-    })),
+    Contract: MockContract,
   };
 });
 
@@ -36,6 +43,9 @@ describe('InteropIdentityResolver', () => {
   let resolver: InteropIdentityResolver;
 
   beforeEach(() => {
+    contractInstance = {
+      getFunction: vi.fn().mockReturnValue(vi.fn().mockResolvedValue('https://example.com/agent.json')),
+    };
     provider = new JsonRpcProvider('https://api.avax.network/ext/bc/C/rpc');
     resolver = new InteropIdentityResolver(provider);
   });

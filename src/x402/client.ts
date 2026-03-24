@@ -85,7 +85,9 @@ export class X402Client {
       }
 
       // Step 4: Create payment proof
-      const proof = await this.facilitator.createPaymentProof(requirements);
+      const proof = await this.facilitator.createPaymentProof(requirements, {
+        body: options.body,
+      });
 
       // Step 5: Retry with payment proof
       const paidResponse = await safeFetch(url, { timeoutMs: 15_000, maxBytes: 2_000_000,

@@ -795,6 +795,7 @@ const TOOLS: MCPTool[] = [
         proposalId: { type: 'string', description: 'Proposal ID (required for accept/counter/reject)' },
         fromAgentId: { type: 'string', description: 'Proposing agent ID (required for propose)' },
         toAgentId: { type: 'string', description: 'Target agent ID (required for propose)' },
+        toAddress: { type: 'string', description: 'Settlement address for the target agent (recommended for propose)' },
         task: { type: 'string', description: 'Task description (required for propose)' },
         price: { type: 'string', description: 'Proposed price in wei (required for propose)' },
         chainId: { type: 'number', description: 'Chain ID for settlement (required for propose)' },
@@ -811,6 +812,7 @@ const TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         proposalId: { type: 'string', description: 'The accepted proposal to settle' },
+        recipientAddress: { type: 'string', description: 'Recipient address if the proposal stores only an agent ID' },
         reputationScore: { type: 'number', description: 'Reputation score (0-100) to submit for the counterparty' },
       },
       required: ['proposalId'],
@@ -1247,6 +1249,14 @@ export class EvalancheMCPServer {
     this.coingecko = new CoinGeckoClient();
   }
 
+  private rebindAgentState(): void {
+    this.discovery = new DiscoveryClient(this.agent.provider);
+    this.settlement = new SettlementClient(this.agent.wallet, this.negotiation);
+    this.interopResolver = new InteropIdentityResolver(this.agent.provider);
+    this.polymarket = null;
+    this.authedClobClient = null;
+  }
+
   private getPolymarket(): PolymarketClient {
     if (!this.polymarket) {
       this.polymarket = new PolymarketClient(this.agent.wallet, 137);
@@ -1306,7 +1316,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '0.9.0',
+              version: '1.7.0',
             },
           });
 
@@ -1542,6 +1552,7 @@ export class EvalancheMCPServer {
           // Recreate agent on the new network
           this.config = { ...this.config, network: networkName as EvalancheConfig['network'] & string };
           this.agent = new Evalanche(this.config);
+          this.rebindAgentState();
           result = { network: networkName, ...networkConfig, address: this.agent.address };
           break;
         }
@@ -2019,6 +2030,7 @@ export class EvalancheMCPServer {
               const proposalId = this.negotiation.propose({
                 fromAgentId: args.fromAgentId as string,
                 toAgentId: args.toAgentId as string,
+                toAddress: args.toAddress as string | undefined,
                 task: args.task as string,
                 price: args.price as string,
                 chainId: args.chainId as number,
@@ -2051,6 +2063,7 @@ export class EvalancheMCPServer {
         case 'settle_payment': {
           const settlement = await this.settlement.settle({
             proposalId: args.proposalId as string,
+            recipientAddress: args.recipientAddress as string | undefined,
             reputationScore: (args.reputationScore as number) ?? 50,
           });
           result = {

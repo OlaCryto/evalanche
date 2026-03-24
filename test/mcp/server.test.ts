@@ -1,28 +1,119 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheMCPServer } from '../../src/mcp/server';
 
-// Mock ethers at the module level
-vi.mock('ethers', () => {
-  const mockProvider = {
-    getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')),
-  };
+const mockProvider = {
+  getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')),
+};
 
-  const mockWallet = {
-    address: '0x1234567890abcdef1234567890abcdef12345678',
-    privateKey: '0x' + 'a'.repeat(64),
-    signMessage: vi.fn().mockResolvedValue('0xmocksignature'),
-    sendTransaction: vi.fn().mockResolvedValue({
-      hash: '0xmockhash',
-      wait: vi.fn().mockResolvedValue({ hash: '0xmockhash', status: 1 }),
-    }),
-    connect: vi.fn(),
-  };
+const mockWallet = {
+  address: '0x1234567890abcdef1234567890abcdef12345678',
+  privateKey: '0x' + 'a'.repeat(64),
+  signMessage: vi.fn().mockResolvedValue('0xmocksignature'),
+  sendTransaction: vi.fn().mockResolvedValue({
+    hash: '0xmockhash',
+    wait: vi.fn().mockResolvedValue({ hash: '0xmockhash', status: 1 }),
+  }),
+  connect: vi.fn(),
+};
+
+let contractMock: Record<string, unknown> = {
+  getFunction: vi.fn().mockImplementation((name: string) => {
+    if (name === 'tokenURI') return vi.fn().mockResolvedValue('ipfs://QmTest123');
+    if (name === 'ownerOf') return vi.fn().mockResolvedValue('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266');
+    if (name === 'getReputation') return vi.fn().mockResolvedValue(BigInt(80));
+    if (name === 'metadata') return vi.fn().mockResolvedValue('');
+    return vi.fn().mockResolvedValue(undefined);
+  }),
+  filters: {
+    Transfer: vi.fn().mockReturnValue({}),
+  },
+  queryFilter: vi.fn().mockResolvedValue([]),
+  allowance: vi.fn().mockResolvedValue(0n),
+  approve: vi.fn().mockResolvedValue({
+    hash: '0xapprove',
+    wait: vi.fn().mockResolvedValue({ status: 1 }),
+  }),
+  submitFeedback: vi.fn().mockResolvedValue({
+    hash: '0xfeedback',
+    wait: vi.fn().mockResolvedValue({ status: 1 }),
+  }),
+  createJob: vi.fn().mockResolvedValue({
+    hash: '0xjob',
+    wait: vi.fn().mockResolvedValue({ hash: '0xjob', status: 1 }),
+  }),
+  completeJob: vi.fn().mockResolvedValue({
+    hash: '0xcomplete',
+    wait: vi.fn().mockResolvedValue({ hash: '0xcomplete', status: 1 }),
+  }),
+  refund: vi.fn().mockResolvedValue({
+    hash: '0xrefund',
+    wait: vi.fn().mockResolvedValue({ hash: '0xrefund', status: 1 }),
+  }),
+  disputeJob: vi.fn().mockResolvedValue({
+    hash: '0xdispute',
+    wait: vi.fn().mockResolvedValue({ hash: '0xdispute', status: 1 }),
+  }),
+  getEscrow: vi.fn().mockResolvedValue([
+    '0xClient1234567890000000000000000000000000',
+    '0xAgent0000000000000000000000000000000001',
+    BigInt('500000000000000000'),
+    BigInt(Math.floor(Date.now() / 1000) + 604800),
+    0,
+  ]),
+  getTokenInfo: vi.fn().mockResolvedValue({ tokenAddress: '0x6Ae3b236d5546369db49AFE3AecF7e32c5F27672' }),
+  calculateCostWithFees: vi.fn().mockResolvedValue(1n),
+  buyAndCreateLpIfPossible: vi.fn().mockResolvedValue({
+    hash: '0xswap',
+    wait: vi.fn().mockResolvedValue({ status: 1 }),
+  }),
+  sell: vi.fn().mockResolvedValue({
+    hash: '0xswap',
+    wait: vi.fn().mockResolvedValue({ status: 1 }),
+  }),
+  upgradeToAndCall: vi.fn().mockResolvedValue({
+    hash: '0xupgrade',
+    wait: vi.fn().mockResolvedValue({ status: 1 }),
+  }),
+};
+
+vi.mock('ethers', () => {
+  class MockJsonRpcProvider {
+    constructor() {
+      return mockProvider;
+    }
+  }
+
+  class MockWallet {
+    constructor() {
+      return mockWallet;
+    }
+  }
+  Object.assign(MockWallet, {
+    fromPhrase: vi.fn(() => ({ ...mockWallet, connect: vi.fn().mockReturnValue(mockWallet) })),
+    createRandom: vi.fn(() => mockWallet),
+  });
+
+  class MockHDNodeWallet {
+    constructor() {
+      return mockWallet;
+    }
+  }
+  Object.assign(MockHDNodeWallet, {
+    fromPhrase: vi.fn(() => ({ ...mockWallet, connect: vi.fn().mockReturnValue(mockWallet) })),
+    createRandom: vi.fn(() => mockWallet),
+  });
+
+  class MockContract {
+    constructor() {
+      return contractMock;
+    }
+  }
 
   return {
-    JsonRpcProvider: vi.fn().mockReturnValue(mockProvider),
-    Wallet: vi.fn().mockReturnValue(mockWallet),
-    HDNodeWallet: { fromPhrase: vi.fn().mockReturnValue({ ...mockWallet, connect: vi.fn().mockReturnValue(mockWallet) }) },
-    Contract: vi.fn().mockReturnValue({}),
+    JsonRpcProvider: MockJsonRpcProvider,
+    Wallet: MockWallet,
+    HDNodeWallet: MockHDNodeWallet,
+    Contract: MockContract,
     parseEther: vi.fn((v: string) => BigInt(Math.floor(parseFloat(v) * 1e18))),
     parseUnits: vi.fn((v: string, d: number) => BigInt(Math.floor(parseFloat(v) * (10 ** d)))),
     formatEther: vi.fn((v: bigint) => (Number(v) / 1e18).toString()),
@@ -34,6 +125,20 @@ describe('EvalancheMCPServer', () => {
   let server: EvalancheMCPServer;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    contractMock = {
+      ...contractMock,
+      queryFilter: vi.fn().mockResolvedValue([]),
+      allowance: vi.fn().mockResolvedValue(0n),
+      approve: vi.fn().mockResolvedValue({
+        hash: '0xapprove',
+        wait: vi.fn().mockResolvedValue({ status: 1 }),
+      }),
+      submitFeedback: vi.fn().mockResolvedValue({
+        hash: '0xfeedback',
+        wait: vi.fn().mockResolvedValue({ status: 1 }),
+      }),
+    };
     server = new EvalancheMCPServer({
       privateKey: '0x' + 'a'.repeat(64),
       network: 'avalanche',
@@ -51,7 +156,7 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('0.9.0');
+    expect(result.serverInfo.version).toBe('1.7.0');
   });
 
   it('lists tools including new bridge/chain tools', async () => {

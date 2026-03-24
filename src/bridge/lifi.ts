@@ -132,7 +132,7 @@ export class LiFiClient {
    * @returns The best available bridge quote
    */
   async getQuote(params: BridgeQuoteParams): Promise<BridgeQuote> {
-    const decimals = params.fromDecimals ?? 18;
+    const decimals = await this.resolveFromDecimals(params);
     const fromAmount = parseUnits(params.fromAmount, decimals).toString();
 
     const searchParams = new URLSearchParams({
@@ -167,7 +167,7 @@ export class LiFiClient {
    * @returns Array of available bridge quotes
    */
   async getRoutes(params: BridgeQuoteParams): Promise<BridgeQuote[]> {
-    const decimals = params.fromDecimals ?? 18;
+    const decimals = await this.resolveFromDecimals(params);
     const fromAmount = parseUnits(params.fromAmount, decimals).toString();
 
     const body = {
@@ -344,7 +344,7 @@ export class LiFiClient {
   }
 
   async getGasSuggestion(chainId: number): Promise<LiFiGasSuggestion> {
-    const res = await safeFetch(`${LIFI_API}/gas/suggestion?chain=${chainId}`, { timeoutMs: 15_000, maxBytes: 2_000_000 });
+    const res = await safeFetch(`${LIFI_API}/gas/suggestion/${chainId}`, { timeoutMs: 15_000, maxBytes: 2_000_000 });
     if (!res.ok) {
       const body = await res.text().catch(() => 'Unknown error');
       throw new EvalancheError(
@@ -352,7 +352,24 @@ export class LiFiClient {
         EvalancheErrorCode.LIFI_API_ERROR,
       );
     }
-    return await res.json() as LiFiGasSuggestion;
+    const data = await res.json() as Record<string, unknown>;
+
+    if (typeof data.standard === 'string' || typeof data.fast === 'string' || typeof data.slow === 'string') {
+      return data as LiFiGasSuggestion;
+    }
+
+    const recommended = this.readNestedString(data, ['recommended', 'amount']) ?? '0';
+    const limit = this.readNestedString(data, ['limit', 'amount']) ?? recommended;
+
+    return {
+      standard: recommended,
+      fast: limit,
+      slow: recommended,
+      recommended,
+      limit,
+      fromAmount: typeof data.fromAmount === 'string' ? data.fromAmount : '0',
+      available: String(Boolean(data.available ?? false)),
+    };
   }
 
   async getConnections(params: { fromChainId: number; toChainId: number; fromToken?: string; toToken?: string }): Promise<LiFiConnection[]> {
@@ -381,18 +398,25 @@ export class LiFiClient {
     const d = data as any;
     const action = d.action ?? {};
     const estimate = d.estimate ?? {};
+    const fromChainId = this.expectNumber(action.fromChainId, 'quote.action.fromChainId');
+    const toChainId = this.expectNumber(action.toChainId, 'quote.action.toChainId');
+    const fromToken = this.expectString(action.fromToken?.address, 'quote.action.fromToken.address');
+    const toToken = this.expectString(action.toToken?.address, 'quote.action.toToken.address');
+    const fromAmount = this.expectString(action.fromAmount, 'quote.action.fromAmount');
+    const toAmount = this.expectString(estimate.toAmount, 'quote.estimate.toAmount');
+    const tool = this.expectString(d.tool ?? d.toolDetails?.name, 'quote.tool');
 
     return {
-      id: d.id ?? d.tool ?? 'unknown',
-      fromChainId: action.fromChainId ?? 0,
-      toChainId: action.toChainId ?? 0,
-      fromToken: action.fromToken?.address ?? '',
-      toToken: action.toToken?.address ?? '',
-      fromAmount: action.fromAmount ?? '0',
-      toAmount: estimate.toAmount ?? '0',
+      id: String(d.id ?? tool),
+      fromChainId,
+      toChainId,
+      fromToken,
+      toToken,
+      fromAmount,
+      toAmount,
       estimatedGas: estimate.gasCosts?.[0]?.amountUSD ?? '0',
       estimatedTime: estimate.executionDuration ?? 0,
-      tool: d.tool ?? d.toolDetails?.name ?? 'unknown',
+      tool,
       rawRoute: data,
     };
   }
@@ -405,15 +429,22 @@ export class LiFiClient {
     const firstStep = steps[0] ?? {};
     const action = firstStep.action ?? {};
     const estimate = firstStep.estimate ?? {};
+    const fromChainId = this.expectNumber(r.fromChainId ?? action.fromChainId, 'route.fromChainId');
+    const toChainId = this.expectNumber(r.toChainId ?? action.toChainId, 'route.toChainId');
+    const fromToken = this.expectString(r.fromToken?.address ?? action.fromToken?.address, 'route.fromToken.address');
+    const toToken = this.expectString(r.toToken?.address ?? action.toToken?.address, 'route.toToken.address');
+    const fromAmount = this.expectString(r.fromAmount ?? action.fromAmount, 'route.fromAmount');
+    const toAmount = this.expectString(r.toAmount ?? estimate.toAmount, 'route.toAmount');
+    const tool = this.expectString(firstStep.tool ?? firstStep.toolDetails?.name, 'route.tool');
 
     return {
-      id: r.id ?? 'unknown',
-      fromChainId: r.fromChainId ?? action.fromChainId ?? 0,
-      toChainId: r.toChainId ?? action.toChainId ?? 0,
-      fromToken: r.fromToken?.address ?? action.fromToken?.address ?? '',
-      toToken: r.toToken?.address ?? action.toToken?.address ?? '',
-      fromAmount: r.fromAmount ?? action.fromAmount ?? '0',
-      toAmount: r.toAmount ?? estimate.toAmount ?? '0',
+      id: String(r.id ?? tool),
+      fromChainId,
+      toChainId,
+      fromToken,
+      toToken,
+      fromAmount,
+      toAmount,
       estimatedGas: r.gasCostUSD ?? estimate.gasCosts?.[0]?.amountUSD ?? '0',
       estimatedTime: steps.reduce(
         (total: number, s: Record<string, unknown>) =>
@@ -421,8 +452,49 @@ export class LiFiClient {
           total + ((s as any).estimate?.executionDuration ?? 0),
         0,
       ),
-      tool: firstStep.tool ?? firstStep.toolDetails?.name ?? 'unknown',
+      tool,
       rawRoute: route,
     };
+  }
+
+  private async resolveFromDecimals(params: BridgeQuoteParams): Promise<number> {
+    if (params.fromDecimals !== undefined) return params.fromDecimals;
+    if (params.fromToken === NATIVE_TOKEN) return 18;
+
+    try {
+      const token = await this.getToken(params.fromChainId, params.fromToken);
+      return token.decimals;
+    } catch {
+      return 18;
+    }
+  }
+
+  private expectString(value: unknown, field: string): string {
+    if (typeof value === 'string' && value.length > 0) return value;
+    throw new EvalancheError(
+      `Li.Fi payload missing ${field}`,
+      EvalancheErrorCode.BRIDGE_QUOTE_FAILED,
+    );
+  }
+
+  private expectNumber(value: unknown, field: string): number {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    throw new EvalancheError(
+      `Li.Fi payload missing ${field}`,
+      EvalancheErrorCode.BRIDGE_QUOTE_FAILED,
+    );
+  }
+
+  private readNestedString(value: Record<string, unknown>, path: string[]): string | undefined {
+    let current: unknown = value;
+    for (const key of path) {
+      if (!current || typeof current !== 'object') return undefined;
+      current = (current as Record<string, unknown>)[key];
+    }
+    return typeof current === 'string' ? current : undefined;
   }
 }

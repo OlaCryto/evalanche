@@ -1,6 +1,7 @@
+import { createHash } from 'crypto';
 import { parseEther } from 'ethers';
 import type { AgentSigner } from '../wallet/signer';
-import type { PaymentRequirements } from './types';
+import type { PaymentProofPayload, PaymentRequirements } from './types';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
 
 /**
@@ -18,15 +19,23 @@ export class X402Facilitator {
    * @param requirements - Payment requirements from the 402 response
    * @returns Base64-encoded signed payment proof
    */
-  async createPaymentProof(requirements: PaymentRequirements): Promise<string> {
+  async createPaymentProof(
+    requirements: PaymentRequirements,
+    request?: { body?: string },
+  ): Promise<string> {
     try {
-      const payload = {
+      const payload: PaymentProofPayload = {
         facilitator: requirements.facilitator,
         paymentAddress: requirements.paymentAddress,
         amount: requirements.amount,
         currency: requirements.currency,
         chainId: requirements.chainId,
         payer: this.wallet.address,
+        resource: requirements.resource,
+        nonce: requirements.nonce,
+        issuedAt: requirements.issuedAt,
+        expiresAt: requirements.expiresAt,
+        bodyHash: requirements.bodyHash ?? X402Facilitator.hashBody(request?.body),
         timestamp: Date.now(),
       };
 
@@ -57,5 +66,10 @@ export class X402Facilitator {
     const required = parseEther(requirements.amount);
     const max = parseEther(maxPayment);
     return required <= max;
+  }
+
+  static hashBody(body?: string): string | undefined {
+    if (body === undefined) return undefined;
+    return createHash('sha256').update(body).digest('hex');
   }
 }

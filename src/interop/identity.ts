@@ -175,10 +175,15 @@ export class InteropIdentityResolver {
       const events = await contract.queryFilter(filter);
       if (events.length === 0) return null;
 
-      const lastEvent = events[events.length - 1];
-      if ('args' in lastEvent && lastEvent.args) {
-        const tokenId = lastEvent.args[2];
-        return String(tokenId);
+      for (let index = events.length - 1; index >= 0; index--) {
+        const event = events[index];
+        if (!('args' in event) || !event.args) continue;
+
+        const tokenId = event.args[2];
+        const owner = await contract.getFunction('ownerOf')(tokenId) as string;
+        if (owner.toLowerCase() === address.toLowerCase()) {
+          return String(tokenId);
+        }
       }
       return null;
     } catch (error) {

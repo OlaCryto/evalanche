@@ -4,11 +4,17 @@ import { EvalancheErrorCode } from '../../src/utils/errors';
 // ─── Mock ethers ──────────────────────────────────────────────────────────────
 // vi.mock is hoisted above imports by Vitest's transformer, so `Contract` below
 // is a vi.fn() that we can reconfigure per test via vi.mocked(Contract).
+let contractMock = makeContractMock();
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ethers')>();
+  class MockContract {
+    constructor() {
+      return contractMock;
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn(),
+    Contract: MockContract,
   };
 });
 
@@ -72,7 +78,7 @@ describe('ArenaSwapClient — constants', () => {
 
 describe('ArenaSwapClient.getArenaTokenId', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('finds the tokenId when the address matches in the first batch', async () => {
@@ -82,12 +88,12 @@ describe('ArenaSwapClient.getArenaTokenId', () => {
   });
 
   it('is case-insensitive when matching token addresses', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       getTokenInfo: vi.fn().mockImplementation(async (id: bigint) => {
         if (id === EVA_TOKEN_ID) return { tokenAddress: EVA_TOKEN.toUpperCase() };
         return { tokenAddress: '0x0000000000000000000000000000000000000001' };
       }),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     const tokenId = await client.getArenaTokenId(EVA_TOKEN.toLowerCase());
@@ -95,9 +101,9 @@ describe('ArenaSwapClient.getArenaTokenId', () => {
   });
 
   it('throws ARENA_TOKEN_NOT_FOUND when getTokenInfo always reverts (token not registered)', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       getTokenInfo: vi.fn().mockRejectedValue(new Error('execution reverted')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     await expect(
@@ -119,7 +125,7 @@ describe('ArenaSwapClient.getArenaTokenId', () => {
       if (id === EVA_TOKEN_ID) return { tokenAddress: EVA_TOKEN };
       return { tokenAddress: '0x0000000000000000000000000000000000000001' };
     });
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({ getTokenInfo }) as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock({ getTokenInfo });
 
     const client = new ArenaSwapClient(makeMockSigner());
 
@@ -137,7 +143,7 @@ describe('ArenaSwapClient.getArenaTokenId', () => {
 
 describe('ArenaSwapClient.calculateBuyCost', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns the $ARENA cost in wei for a given amount', async () => {
@@ -148,7 +154,7 @@ describe('ArenaSwapClient.calculateBuyCost', () => {
 
   it('passes the correct (tokenId, amount) args to calculateCostWithFees', async () => {
     const calculateCostWithFees = vi.fn().mockResolvedValue(1n);
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({ calculateCostWithFees }) as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock({ calculateCostWithFees });
 
     const client = new ArenaSwapClient(makeMockSigner());
     const amount = 50n * 10n ** 18n;
@@ -158,9 +164,9 @@ describe('ArenaSwapClient.calculateBuyCost', () => {
   });
 
   it('wraps contract errors in ARENA_SWAP_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       calculateCostWithFees: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     await expect(client.calculateBuyCost(EVA_TOKEN, 1n)).rejects.toMatchObject({
@@ -183,9 +189,9 @@ describe('ArenaSwapClient.getTokenInfo', () => {
   };
 
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       getTokenInfo: vi.fn().mockResolvedValue(rawInfo),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
   });
 
   it('parses all token info fields correctly', async () => {
@@ -202,9 +208,9 @@ describe('ArenaSwapClient.getTokenInfo', () => {
   });
 
   it('throws ARENA_TOKEN_NOT_FOUND when getTokenInfo reverts', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       getTokenInfo: vi.fn().mockRejectedValue(new Error('execution reverted')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     await expect(client.getTokenInfo(99n)).rejects.toMatchObject({
@@ -217,7 +223,7 @@ describe('ArenaSwapClient.getTokenInfo', () => {
 
 describe('ArenaSwapClient.buyArenaToken', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns a swap result with txHash and tokenId', async () => {
@@ -234,9 +240,9 @@ describe('ArenaSwapClient.buyArenaToken', () => {
   });
 
   it('wraps buy errors in ARENA_SWAP_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       buyAndCreateLpIfPossible: vi.fn().mockRejectedValue(new Error('slippage')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     await expect(
@@ -249,7 +255,7 @@ describe('ArenaSwapClient.buyArenaToken', () => {
 
 describe('ArenaSwapClient.sellArenaToken', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns a swap result with txHash and tokenId', async () => {
@@ -266,9 +272,9 @@ describe('ArenaSwapClient.sellArenaToken', () => {
   });
 
   it('wraps sell errors in ARENA_SWAP_FAILED', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       sell: vi.fn().mockRejectedValue(new Error('insufficient output')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new ArenaSwapClient(makeMockSigner());
     await expect(

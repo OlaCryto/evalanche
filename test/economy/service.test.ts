@@ -9,14 +9,18 @@ const AGENT_ADDRESS = '0xABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD';
 const PAYER_PRIVATE_KEY = '0x' + 'bb'.repeat(32);
 const payerWallet = new Wallet(PAYER_PRIVATE_KEY);
 
-/** Create a valid x402 payment proof signed by the payer */
-async function createProof(overrides?: Record<string, unknown>): Promise<string> {
+/** Create a valid x402 payment proof signed by the payer for a live challenge */
+async function createProof(
+  host: AgentServiceHost,
+  path = '/audit',
+  body?: string,
+  overrides?: Record<string, unknown>,
+): Promise<string> {
+  const challenge = await host.handleRequest(path, body);
+  expect(challenge.status).toBe(402);
+  const requirements = JSON.parse(challenge.headers['x-payment-requirements']);
   const payload = {
-    facilitator: AGENT_ADDRESS,
-    paymentAddress: AGENT_ADDRESS,
-    amount: '0.01',
-    currency: 'ETH',
-    chainId: 8453,
+    ...requirements,
     payer: payerWallet.address,
     timestamp: Date.now(),
     ...overrides,
@@ -98,7 +102,7 @@ describe('AgentServiceHost', () => {
     });
 
     it('should return 200 with content when valid payment proof', async () => {
-      const proof = await createProof();
+      const proof = await createProof(host);
       const res = await host.handleRequest('/audit', undefined, proof);
       expect(res.status).toBe(200);
       const body = JSON.parse(res.body);
@@ -106,7 +110,7 @@ describe('AgentServiceHost', () => {
     });
 
     it('should record payment after successful request', async () => {
-      const proof = await createProof();
+      const proof = await createProof(host);
       await host.handleRequest('/audit', undefined, proof);
       expect(host.paymentCount).toBe(1);
 
@@ -122,14 +126,16 @@ describe('AgentServiceHost', () => {
     });
 
     it('should return 403 when payment addressed to wrong agent', async () => {
-      const proof = await createProof({ paymentAddress: '0x0000000000000000000000000000000000000000' });
+      const proof = await createProof(host, '/audit', undefined, {
+        paymentAddress: '0x0000000000000000000000000000000000000000',
+      });
       const res = await host.handleRequest('/audit', undefined, proof);
       expect(res.status).toBe(403);
       expect(JSON.parse(res.body).error).toContain('not addressed');
     });
 
     it('should return 403 for wrong chain', async () => {
-      const proof = await createProof({ chainId: 1 });
+      const proof = await createProof(host, '/audit', undefined, { chainId: 1 });
       const res = await host.handleRequest('/audit', undefined, proof);
       expect(res.status).toBe(403);
       expect(JSON.parse(res.body).error).toContain('Wrong chain');
@@ -138,7 +144,7 @@ describe('AgentServiceHost', () => {
     it('should pass body to handler', async () => {
       const handlerSpy = vi.fn().mockResolvedValue('{"ok":true}');
       host.serve(makeEndpoint({ handler: handlerSpy }));
-      const proof = await createProof();
+      const proof = await createProof(host, '/audit', 'request-body');
       await host.handleRequest('/audit', 'request-body', proof);
       expect(handlerSpy).toHaveBeenCalledWith('request-body');
     });
@@ -155,11 +161,11 @@ describe('AgentServiceHost', () => {
       host.serve(makeEndpoint({ path: '/a' }));
       host.serve(makeEndpoint({ path: '/b' }));
 
-      const proofA = await createProof();
-      const proofB = await createProof();
+      const proofA = await createProof(host, '/a');
+      const proofB = await createProof(host, '/b');
       await host.handleRequest('/a', undefined, proofA);
       await host.handleRequest('/b', undefined, proofB);
-      await host.handleRequest('/a', undefined, await createProof());
+      await host.handleRequest('/a', undefined, await createProof(host, '/a'));
 
       const revenue = host.getRevenue();
       expect(revenue.totalRequests).toBe(3);

@@ -2,11 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheErrorCode } from '../../src/utils/errors';
 
 // ─── Mock ethers ──────────────────────────────────────────────────────────────
+let contractMock: ReturnType<typeof makeContractMock>;
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ethers')>();
+  class MockContract {
+    constructor() {
+      return contractMock ?? makeContractMock();
+    }
+  }
   return {
     ...actual,
-    Contract: vi.fn(),
+    Contract: MockContract,
   };
 });
 
@@ -70,7 +76,7 @@ describe('VaultClient — constants', () => {
 
 describe('VaultClient.vaultInfo', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns vault metadata', async () => {
@@ -85,9 +91,9 @@ describe('VaultClient.vaultInfo', () => {
   });
 
   it('wraps errors in VAULT_ERROR', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       name: vi.fn().mockRejectedValue(new Error('not a vault')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.vaultInfo(YOUSD_VAULT)).rejects.toMatchObject({
@@ -100,7 +106,7 @@ describe('VaultClient.vaultInfo', () => {
 
 describe('VaultClient.depositQuote', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns expected shares for a deposit amount', async () => {
@@ -112,9 +118,9 @@ describe('VaultClient.depositQuote', () => {
   });
 
   it('wraps errors in VAULT_ERROR', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       previewDeposit: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.depositQuote(YOUSD_VAULT, '1000')).rejects.toMatchObject({
@@ -127,7 +133,7 @@ describe('VaultClient.depositQuote', () => {
 
 describe('VaultClient.deposit', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('deposits and returns transaction result', async () => {
@@ -139,9 +145,9 @@ describe('VaultClient.deposit', () => {
   });
 
   it('wraps deposit errors in VAULT_ERROR', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       deposit: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.deposit(YOUSD_VAULT, '1000')).rejects.toMatchObject({
@@ -154,7 +160,7 @@ describe('VaultClient.deposit', () => {
 
 describe('VaultClient.withdrawQuote', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('returns expected assets for a share amount', async () => {
@@ -166,9 +172,9 @@ describe('VaultClient.withdrawQuote', () => {
   });
 
   it('wraps errors in VAULT_ERROR', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       previewRedeem: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.withdrawQuote(YOUSD_VAULT, '990')).rejects.toMatchObject({
@@ -181,7 +187,7 @@ describe('VaultClient.withdrawQuote', () => {
 
 describe('VaultClient.withdraw', () => {
   beforeEach(() => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock() as unknown as InstanceType<typeof Contract>);
+    contractMock = makeContractMock();
   });
 
   it('redeems shares and returns transaction result', async () => {
@@ -193,9 +199,9 @@ describe('VaultClient.withdraw', () => {
   });
 
   it('wraps withdraw errors in VAULT_ERROR', async () => {
-    vi.mocked(Contract).mockImplementation(() => makeContractMock({
+    contractMock = makeContractMock({
       redeem: vi.fn().mockRejectedValue(new Error('revert')),
-    }) as unknown as InstanceType<typeof Contract>);
+    });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.withdraw(YOUSD_VAULT, '990')).rejects.toMatchObject({

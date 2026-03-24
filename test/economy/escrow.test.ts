@@ -3,6 +3,14 @@ import { EscrowClient } from '../../src/economy/escrow';
 import { EvalancheError } from '../../src/utils/errors';
 import type { AgentSigner } from '../../src/wallet/signer';
 
+let contractInstance = mockContract();
+let contractFactoryInstance = {
+  deploy: vi.fn().mockResolvedValue({
+    waitForDeployment: vi.fn().mockResolvedValue(undefined),
+    getAddress: vi.fn().mockResolvedValue('0xEscrowContract000000000000000000000000'),
+  }),
+};
+
 // Mock wallet
 function mockWallet(): AgentSigner {
   return {
@@ -47,16 +55,20 @@ function mockContract() {
 // Mock ethers Contract constructor
 vi.mock('ethers', async () => {
   const actual = await vi.importActual('ethers');
-  const contractInstance = mockContract();
+  class MockContract {
+    constructor() {
+      return contractInstance;
+    }
+  }
+  class MockContractFactory {
+    constructor() {
+      return contractFactoryInstance;
+    }
+  }
   return {
     ...actual as object,
-    Contract: vi.fn().mockReturnValue(contractInstance),
-    ContractFactory: vi.fn().mockReturnValue({
-      deploy: vi.fn().mockResolvedValue({
-        waitForDeployment: vi.fn().mockResolvedValue(undefined),
-        getAddress: vi.fn().mockResolvedValue('0xEscrowContract000000000000000000000000'),
-      }),
-    }),
+    Contract: MockContract,
+    ContractFactory: MockContractFactory,
   };
 });
 
@@ -65,10 +77,15 @@ describe('EscrowClient', () => {
   let contract: ReturnType<typeof mockContract>;
 
   beforeEach(async () => {
-    const { Contract } = await import('ethers');
+    contractInstance = mockContract();
+    contractFactoryInstance = {
+      deploy: vi.fn().mockResolvedValue({
+        waitForDeployment: vi.fn().mockResolvedValue(undefined),
+        getAddress: vi.fn().mockResolvedValue('0xEscrowContract000000000000000000000000'),
+      }),
+    };
     escrow = new EscrowClient(mockWallet(), '0xEscrowContract000000000000000000000000');
-    // Get the mock contract instance
-    contract = (Contract as unknown as ReturnType<typeof vi.fn>).mock.results[0]?.value ?? mockContract();
+    contract = contractInstance;
   });
 
   describe('hashJobId', () => {

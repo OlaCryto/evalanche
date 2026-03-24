@@ -85,22 +85,23 @@ export async function resolveAgentSecrets(): Promise<SecretsResolution> {
   const mnemonicRef = rawMnemonic ? parseSecretRef(rawMnemonic) : null;
 
   if (privateKeyRef || mnemonicRef) {
-    // Has secret refs — must resolve via OpenClaw
-    if (await isOpenClawAvailable()) {
-      const [resolvedPrivateKey, resolvedMnemonic] = await Promise.all([
-        privateKeyRef ? resolveOpenClawSecret(privateKeyRef) : Promise.resolve(null),
-        mnemonicRef ? resolveOpenClawSecret(mnemonicRef) : Promise.resolve(null),
-      ]);
+    const openClawAvailable = await isOpenClawAvailable();
+    const [resolvedPrivateKey, resolvedMnemonic] = await Promise.all([
+      privateKeyRef && openClawAvailable ? resolveOpenClawSecret(privateKeyRef) : Promise.resolve(null),
+      mnemonicRef && openClawAvailable ? resolveOpenClawSecret(mnemonicRef) : Promise.resolve(null),
+    ]);
 
-      if (resolvedPrivateKey || resolvedMnemonic) {
-        return {
-          privateKey: resolvedPrivateKey ?? undefined,
-          mnemonic: resolvedMnemonic ?? undefined,
-          source: 'openclaw-secrets',
-        };
-      }
+    const privateKey = resolvedPrivateKey ?? (!privateKeyRef ? rawPrivateKey : undefined);
+    const mnemonic = resolvedMnemonic ?? (!mnemonicRef ? rawMnemonic : undefined);
+
+    if (privateKey || mnemonic) {
+      return {
+        privateKey: privateKey ?? undefined,
+        mnemonic: mnemonic ?? undefined,
+        source: resolvedPrivateKey || resolvedMnemonic ? 'openclaw-secrets' : 'env',
+      };
     }
-    // OpenClaw unavailable or secret not found — fall through to keystore
+
     return { source: 'keystore' };
   }
 

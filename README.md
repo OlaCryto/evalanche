@@ -190,7 +190,7 @@ const composerResult = await agent.bridgeTokens({
 
 ### Gas.zip — Destination Gas Funding
 
-Fund gas on a destination chain cheaply via Gas.zip.
+Fund gas on a destination chain cheaply via Gas.zip. As of `1.7.0`, Evalanche sources executable Gas.zip routes through LI.FI's live `gasZipBridge` integration so quotes and tx requests stay aligned with current vendor routing.
 
 ```typescript
 // Send gas from Ethereum to Arbitrum
@@ -252,6 +252,15 @@ Create an agent with existing keys.
 | `agent.resolveIdentity()` | Resolve ERC-8004 identity (Avalanche) |
 | `agent.payAndFetch(url, options)` | x402 payment-gated HTTP |
 | `agent.submitFeedback(feedback)` | Submit reputation feedback |
+
+#### x402 Notes
+
+- `agent.payAndFetch()` now uses fresh challenge-bound proofs. Proofs are single-use and tied to the requested path/body, so clients should always answer the current `402` challenge instead of replaying cached proofs.
+- `AgentServiceHost` rejects expired, reused, cross-path, and mismatched-body proofs.
+
+#### Settlement Notes
+
+- Economy settlement now requires a real recipient EVM address. Store it in the proposal via `toAddress` or pass `recipientAddress` when using `settle_payment`.
 
 ### Bridge & Cross-Chain (v0.4.0+)
 
@@ -708,7 +717,16 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.6.0 (current)
+### v1.7.0 (current)
+- **Security + runtime hardening release**
+- x402 proofs are now single-use, challenge-bound, and request/body aware instead of replayable signed blobs
+- settlement requires an explicit recipient address and MCP network switching now rebinds provider/wallet-dependent helpers correctly
+- `safeFetch` now enforces body-size limits on streamed responses instead of trusting `content-length`
+- Gas.zip funding now rides LI.FI's live `gasZipBridge` route surface and LI.FI gas suggestion handling was updated to the current endpoint/response shape
+- dYdX runtime loading/build packaging was hardened and verified live from `dist`
+- 434 tests passing
+
+### v1.6.0
 - **Sovereign Polymarket execution**
 - `pm_approve` and `pm_buy` now work through the local sovereign wallet path
 - Polymarket API-key handling hardened for wallets with existing credentials
