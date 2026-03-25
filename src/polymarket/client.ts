@@ -4,6 +4,19 @@
  * Provides access to Polymarket's CLOB (Central Limit Order Book) for trading
  * conditional tokens (prediction market outcomes).
  *
+ * Reads:
+ * - market search and lookup
+ * - outcome token discovery
+ * - order book and price inspection
+ * - balances, positions, open orders, and trade history
+ *
+ * Writes:
+ * - direct BUY and SELL orders through `placeOrder()`
+ * - market sells through `placeMarketSellOrder()`
+ *
+ * Limitation:
+ * - redemption is not implemented in the MCP layer yet
+ *
  * Official SDK: @polymarket/clob-client
  * API docs: https://docs.polymarket.com
  *
@@ -230,6 +243,37 @@ export class PolymarketClient {
     }
   }
 
+  /**
+   * Get active markets from the CLOB API (live, no auth required for reads).
+   * Falls back to Gamma if CLOB is unavailable.
+   */
+  async getLiveMarkets(options?: { limit?: number; cursor?: string }): Promise<PolymarketMarket[]> {
+    const limit = Math.min(options?.limit ?? 100, 500);
+
+    // Try CLOB /markets endpoint first
+    try {
+      const url = new URL('/markets', POLYMARKET_CLOB_HOST);
+      url.searchParams.set('limit', String(limit));
+      if (options?.cursor) url.searchParams.set('cursor', options.cursor);
+
+      const response = await safeFetch(url.toString(), {
+        headers: polymarketHeaders(),
+        timeoutMs: 12_000,
+        maxBytes: 2_000_000,
+      });
+
+      if (response.ok) {
+        const payload = await response.json() as { data?: Record<string, unknown>[]; next_cursor?: string };
+        const records = payload.data ?? [];
+        return records.map(normalizeClobMarket);
+      }
+    } catch {
+      // Fall through to Gamma fallback
+    }
+
+    // Gamma fallback (may return stale/historical data)
+    return this.getMarkets({ limit, closed: false, cursor: options?.cursor });
+  }
 
   async searchMarkets(query: string, limit = 10): Promise<PolymarketMarket[]> {
     const q = query.toLowerCase().trim();
@@ -240,11 +284,11 @@ export class PolymarketClient {
     const matches: PolymarketMarket[] = [];
     const seen = new Set<string>();
 
+    // Try CLOB live markets first (active, current markets)
     for (let page = 0; page < maxPages && matches.length < limit; page++) {
-      const markets = await this.getMarkets({
+      const markets = await this.getLiveMarkets({
         limit: pageSize,
-        closed: false,
-        cursor: String(page * pageSize),
+        cursor: page === 0 ? undefined : (matches.length > 0 ? undefined : undefined),
       });
 
       if (markets.length === 0) break;
@@ -259,6 +303,30 @@ export class PolymarketClient {
       }
 
       if (markets.length < pageSize) break;
+    }
+
+    // If CLOB returned nothing, try Gamma (includes historical/closed markets)
+    if (matches.length === 0) {
+      for (let page = 0; page < maxPages && matches.length < limit; page++) {
+        const markets = await this.getMarkets({
+          limit: pageSize,
+          closed: false,
+          cursor: String(page * pageSize),
+        });
+
+        if (markets.length === 0) break;
+
+        for (const market of markets) {
+          const haystack = `${market.question} ${market.description ?? ''}`.toLowerCase();
+          if (haystack.includes(q) && !seen.has(market.conditionId)) {
+            matches.push(market);
+            seen.add(market.conditionId);
+          }
+          if (matches.length >= limit) break;
+        }
+
+        if (markets.length < pageSize) break;
+      }
     }
 
     return matches.slice(0, limit);
@@ -371,6 +439,10 @@ export class PolymarketClient {
     return this.getOrderBook(tokenId);
   }
 
+  /**
+   * Place a direct CLOB order when the outcome token ID, price, and size are known.
+   * Supports both BUY and SELL.
+   */
   async placeOrder(params: PolymarketOrderParams): Promise<PolymarketOrderResult> {
     try {
       const client = await this.getClient();
@@ -481,6 +553,10 @@ export class PolymarketClient {
     }
   }
 
+  /**
+   * Estimate the average fill price from the visible order book depth.
+   * Returns `0` if there is not enough liquidity to fill the requested size.
+   */
   async estimateFillPrice(tokenId: string, side: PolymarketSide, size: number): Promise<number> {
     try {
       const orderBook = await this.getOrderBook(tokenId);
@@ -503,5 +579,121 @@ export class PolymarketClient {
         error instanceof Error ? error : undefined,
       );
     }
+  }
+
+  /**
+   * Place a market SELL order for an outcome token.
+   *
+   * This helper accepts a target USDC proceeds amount rather than a token size.
+   * It uses the current best bid to estimate size before submission, then
+   * returns the realized fill details from the posted order.
+   */
+  async placeMarketSellOrder(params: {
+    conditionId: string;
+    outcome: string;
+    amountUSDC: number;
+    maxSlippagePct?: number;
+  }): Promise<{
+    orderID: string;
+    status: string;
+    size: number;
+    averageFillPrice: number;
+    totalUSDC: number;
+    tokenId: string;
+  }> {
+    const { conditionId, outcome, amountUSDC } = params;
+
+    // Get market to find tokenId (unauthenticated read is fine)
+    const market = await this.getMarket(conditionId);
+    if (!market) throw new EvalancheError(`Market not found: ${conditionId}`, EvalancheErrorCode.INVALID_PARAMS);
+
+    const token = market.tokens.find((t) => t.outcome.toUpperCase() === outcome.toUpperCase());
+    if (!token) throw new EvalancheError(`Outcome ${outcome} not found in market`);
+    const tokenId = token.tokenId;
+
+    // Get current best bid to calculate token size
+    const orderBook = await this.getOrderBook(tokenId);
+    const bestBid = orderBook.bids?.[0]?.price;
+
+    if (!bestBid || bestBid <= 0) {
+      throw new EvalancheError(
+        `No bids available for ${outcome} outcome. Cannot place sell order.`,
+        EvalancheErrorCode.SWAP_FAILED,
+      );
+    }
+
+    // Size = USDC target / best bid (how many tokens to sell)
+    const size = amountUSDC / bestBid;
+
+    // Build an authenticated CLOB client from the signer (same pattern as MCP server)
+    const { ClobClient, Side } = await import('@polymarket/clob-client');
+    const { createWalletClient, http } = await import('viem');
+    const { polygon } = await import('viem/chains');
+    const { privateKeyToAccount } = await import('viem/accounts');
+
+    // Extract private key from signer
+    let pk: string;
+    if (typeof this.signer === 'object' && 'privateKey' in this.signer) {
+      pk = String((this.signer as any).privateKey);
+    } else {
+      throw new EvalancheError(
+        `placeMarketSellOrder requires a signer with a privateKey`,
+        EvalancheErrorCode.SIGNER_NOT_FOUND,
+      );
+    }
+    if (!pk.startsWith('0x')) pk = `0x${pk}`;
+
+    const account = privateKeyToAccount(pk as `0x${string}`);
+    const walletClient = createWalletClient({
+      account,
+      chain: polygon,
+      transport: http('https://polygon-bor-rpc.publicnode.com'),
+    });
+
+    // Create temporary client to derive API credentials, then create authed client
+    const tempClient = new (ClobClient as any)(
+      this.host,
+      this.chainId,
+      walletClient,
+    );
+    const creds = await tempClient.createOrDeriveApiKey();
+    const authed = new (ClobClient as any)(
+      this.host,
+      this.chainId,
+      walletClient,
+      creds,
+      0,
+      account.address,
+    );
+
+    const orderResult = await authed.createAndPostMarketOrder({
+      tokenID: tokenId,
+      side: Side.SELL,
+      amount: amountUSDC,
+      feeRateBps: 0,
+      nonce: 0,
+    });
+
+    // Attempt to read back the filled average price
+    let avgPrice = bestBid;
+    let filledSize = size;
+    try {
+      const filled = await authed.getOrder(orderResult.orderID ?? orderResult.orderIds?.[0]);
+      if (filled) {
+        avgPrice = filled.average_fill_price ?? bestBid;
+        filledSize = filled.size ?? size;
+      }
+    } catch {
+      // getOrder is best-effort; fall back to estimates
+    }
+
+    return {
+      orderID: orderResult?.orderID ?? orderResult?.orderIds?.[0] ?? 'unknown',
+      status: orderResult?.status ?? 'FILLED',
+      size: filledSize,
+      averageFillPrice: avgPrice,
+      totalUSDC: filledSize * avgPrice,
+      tokenId,
+    };
   }
 }

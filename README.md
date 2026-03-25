@@ -2,7 +2,7 @@
 
 **Multi-EVM agent wallet SDK with onchain identity (ERC-8004), full agent identity resolution, payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), market intelligence (CoinGecko), prediction markets (Polymarket CLOB), agent economy primitives, DeFi operations, and perpetual futures (dYdX v4)**
 
-Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), CoinGecko market data, Polymarket market discovery, agent economy primitives (discovery, negotiation, settlement, escrow, memory), DeFi operations, and perpetual futures on dYdX. No browser, no popups, no human in the loop.
+Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), CoinGecko market data, Polymarket market discovery and execution, agent economy primitives (discovery, negotiation, settlement, escrow, memory), DeFi operations, and perpetual futures on dYdX. No browser, no popups, no human in the loop.
 
 ## Install
 
@@ -373,6 +373,79 @@ await baseVaults.deposit(YOUSD, '1000', 'base'); // approve + deposit in one cal
 await baseVaults.withdraw(YOUSD, '998.1', 'base'); // redeem shares
 ```
 
+### Prediction Markets: Polymarket (v1.5.0+)
+
+Polymarket support is exposed in two ways:
+
+- standalone SDK usage through `PolymarketClient`
+- agent-native usage through MCP tools such as `pm_search`, `pm_buy`, and `pm_sell`
+
+```typescript
+import { Evalanche, PolymarketClient, PolymarketSide } from 'evalanche';
+
+const agent = new Evalanche({
+  privateKey: process.env.AGENT_PRIVATE_KEY,
+  network: 'polygon',
+});
+
+const pm = new PolymarketClient(agent.wallet, 137);
+
+// Discover markets
+const matches = await pm.searchMarkets('election', 5);
+const market = await pm.getMarket(matches[0].conditionId);
+const yesToken = market?.tokens.find((token) => token.outcome === 'YES');
+
+// Inspect liquidity
+const book = await pm.getOrderBook(yesToken!.tokenId);
+const estBuyPrice = await pm.estimateFillPrice(yesToken!.tokenId, PolymarketSide.BUY, 25);
+const estSellPrice = await pm.estimateFillPrice(yesToken!.tokenId, PolymarketSide.SELL, 25);
+
+// Place a limit buy or sell directly through the SDK
+await pm.placeOrder({
+  tokenId: yesToken!.tokenId,
+  price: 0.47,
+  size: 25,
+  side: PolymarketSide.BUY,
+});
+
+await pm.placeOrder({
+  tokenId: yesToken!.tokenId,
+  price: 0.58,
+  size: 10,
+  side: PolymarketSide.SELL,
+});
+
+// Market-sell helper: target a USDC proceeds amount using the current best bid
+await pm.placeMarketSellOrder({
+  conditionId: market!.conditionId,
+  outcome: 'YES',
+  amountUSDC: 20,
+  maxSlippagePct: 1,
+});
+
+// Portfolio/account reads
+const balances = await pm.getBalances();
+const positions = await pm.getPositions();
+const trades = await pm.getTradeHistory();
+```
+
+Supported Polymarket features today:
+
+- market search and market details
+- outcome token discovery
+- order book reads and best-bid price lookup
+- estimated fill price from current order book depth
+- balances, positions, open orders, order lookup, and trade history
+- direct buy and sell order placement through the SDK
+- MCP `pm_buy` for market and limit buys
+- MCP `pm_sell` for market sells
+
+Current limitations:
+
+- `pm_sell` is a market-sell helper, not a limit-sell tool. It converts your target USDC proceeds into token size from the current best bid before submitting.
+- `pm_redeem` is not implemented yet.
+- authenticated trading flows are Polygon-oriented. In practice, agents should hold USDC or outcome tokens on Polygon plus native gas.
+
 ### Perpetuals: dYdX + Hyperliquid (v0.7.0+)
 
 ```typescript
@@ -569,6 +642,14 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `arena_sell` | Sell Arena community tokens |
 | `arena_token_info` | Get Arena token info |
 | `arena_buy_cost` | Calculate Arena buy cost |
+| `pm_search` | Search active Polymarket markets |
+| `pm_market` | Get a Polymarket market by condition ID |
+| `pm_positions` | Get Polymarket positions for a wallet |
+| `pm_orderbook` | Get the order book for an outcome token |
+| `pm_approve` | Approve Polymarket collateral spending on Polygon |
+| `pm_buy` | Buy YES/NO shares with market or limit orders |
+| `pm_sell` | Market-sell YES/NO shares toward a target USDC proceeds amount |
+| `pm_redeem` | Reserved for winning-share redemption; not implemented yet |
 | `approve_and_call` | Approve ERC-20 and execute follow-up contract call |
 | `upgrade_proxy` | Execute UUPS `upgradeToAndCall` proxy upgrade |
 | `dydx_get_markets` | List dYdX perpetual markets |
@@ -757,7 +838,13 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.5 (current)
+### v1.7.6 (current)
+- **Polymarket execution and docs pass**
+- Polymarket now prefers live CLOB market discovery with Gamma fallback for broader search coverage
+- Polymarket supports direct SDK sell orders plus MCP `pm_sell` market sells toward a target USDC proceeds amount
+- the README now documents the standalone Polymarket SDK flow, MCP tool surface, and current limitations such as `pm_redeem`
+
+### v1.7.5
 - **Perps + routing + roadmap consolidation**
 - Li.Fi routes now support explicit route strategy selection, including minimum slippage, minimum execution-time bias, and fastest-route selection
 - perpetuals were refactored around a venue-neutral model with Hyperliquid added as a first-class venue and HIP-3 represented as Hyperliquid market metadata

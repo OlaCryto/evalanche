@@ -17,6 +17,7 @@ description: >
   creating subnets, managing L1 validators, adding validators with BLS keys, querying node info,
   trading perpetual futures on dYdX v4 (100+ markets), searching for perp markets across venues,
   querying CoinGecko market data, searching Polymarket markets and order books,
+  buying or selling Polymarket outcome shares on Polygon,
   staking/unstaking sAVAX via Benqi, depositing/withdrawing from EIP-4626 vaults (yoUSD, Morpho, Aave, etc).
   Don't use when: managing ENS (use moltbook scripts).
   Network: yes (EVM RPCs via Routescan + public fallbacks, dYdX Cosmos chain). Cost: gas fees per transaction.
@@ -80,7 +81,7 @@ metadata:
 
 # Evalanche — Multi-EVM Agent Wallet
 
-Headless wallet SDK with ERC-8004 identity, x402 payments, Li.Fi cross-chain liquidity (bridging + DEX aggregation + DeFi Composer), Gas.zip gas funding, dYdX v4 perpetuals, CoinGecko market intelligence, Polymarket market discovery, contract interaction helpers (approve-and-call + UUPS upgrade), and DeFi operations (liquid staking + EIP-4626 vaults). Works on 21+ EVM chains. 91 MCP tools. Works as CLI or MCP server.
+Headless wallet SDK with ERC-8004 identity, x402 payments, Li.Fi cross-chain liquidity (bridging + DEX aggregation + DeFi Composer), Gas.zip gas funding, dYdX v4 perpetuals, CoinGecko market intelligence, Polymarket market discovery and execution, contract interaction helpers (approve-and-call + UUPS upgrade), and DeFi operations (liquid staking + EIP-4626 vaults). Works on 21+ EVM chains. Works as CLI or MCP server.
 
 **Source:** https://github.com/iJaack/evalanche
 **License:** MIT
@@ -186,6 +187,18 @@ AVALANCHE_NETWORK=base evalanche-mcp
 | `arena_sell` | Sell Arena community tokens for $ARENA |
 | `arena_token_info` | Get token info (fees, curve params) by address |
 | `arena_buy_cost` | Calculate $ARENA cost for a given buy amount (read-only) |
+
+### Polymarket (Polygon)
+| Tool | Description |
+|------|-------------|
+| `pm_search` | Search active Polymarket markets by keyword |
+| `pm_market` | Get market details and outcome tokens by condition ID |
+| `pm_positions` | Get Polymarket positions for a wallet |
+| `pm_orderbook` | Get the order book for an outcome token |
+| `pm_approve` | Approve collateral spending for Polymarket on Polygon |
+| `pm_buy` | Buy YES/NO shares with market or limit orders |
+| `pm_sell` | Market-sell YES/NO shares toward a target USDC proceeds amount |
+| `pm_redeem` | Reserved for winning-share redemption; not implemented yet |
 
 ### Contract Interaction Helpers (v0.9.0)
 | Tool | Description |

@@ -1220,6 +1220,35 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'pm_sell',
+    description: 'Sell outcome shares on a Polymarket market. Requires outcome tokens on Polygon and MATIC for gas. Looks up best bid to convert amountUSDC → token size.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conditionId: { type: 'string', description: 'Market condition ID' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome to sell' },
+        amountUSDC: { type: 'string', description: 'USDC proceeds target — size is calculated from current best bid (e.g. "10")' },
+        maxSlippagePct: { type: 'number', description: 'Max slippage % for market orders (default: 1)' },
+      },
+      required: ['conditionId', 'outcome', 'amountUSDC'],
+    },
+  },
+  {
+    name: 'pm_limit_sell',
+    description: 'Post a GTC (Good-Till-Cancel) limit SELL order on a Polymarket outcome. Posts as a maker order to the order book at the specified price. Use when pm_sell fills at the dust floor due to API key issues. Requires the market to have bids at your target price.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        conditionId: { type: 'string', description: 'Market condition ID' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome to sell' },
+        price: { type: 'number', description: 'Limit price per share (0-1, e.g. 0.50 for $0.50)' },
+        shares: { type: 'string', description: 'Number of outcome tokens to sell' },
+        postOnly: { type: 'boolean', description: 'If true, order only posts to book and does not take liquidity (default: true)' },
+      },
+      required: ['conditionId', 'outcome', 'price', 'shares'],
+    },
+  },
+  {
     name: 'pm_redeem',
     description: 'Redeem winning positions from a resolved Polymarket market for USDC',
     inputSchema: {
@@ -1280,42 +1309,80 @@ export class EvalancheMCPServer {
 
   }
 
-  private async getAuthedClobClient(): Promise<any> {
-    if (this.authedClobClient) return this.authedClobClient;
-
+  /**
+   * Build an authenticated Polymarket CLOB client.
+   * Handles the case where the wallet already has an API key — in that case
+   * createApiKey returns 400 and we fall back to deriveApiKey (GET /auth/api-key).
+   */
+  private async buildAuthedClobClient(walletClient: any, accountAddress: string): Promise<any> {
     const { ClobClient } = await import('@polymarket/clob-client');
+    const ClobAny = ClobClient as any;
+    const host = 'https://clob.polymarket.com';
+    const chainId = 137;
+
+    // Step 1: create a temporary client to derive/create API credentials
+    const tempClient = new ClobAny(host, chainId, walletClient);
+
+    let creds: { key: string; secret: string; passphrase: string };
+    try {
+      creds = await tempClient.createOrDeriveApiKey(0);
+    } catch (createErr: any) {
+      // If createApiKey fails because a key already exists (400), fall back to derive
+      const msg = createErr?.message ?? String(createErr);
+      if (msg.includes('400') || msg.includes('Could not create api key') || msg.includes('api key')) {
+        try {
+          creds = await (tempClient as any).deriveApiKey(0);
+        } catch (deriveErr: any) {
+          throw new Error(
+            `Polymarket API key error — create failed (${msg}) and derive also failed: ${deriveErr?.message ?? String(deriveErr)}. ` +
+            `Ensure the wallet has an active Polymarket CLOB API key at https://clob.polymarket.com/keys`,
+          );
+        }
+      } else {
+        throw createErr;
+      }
+    }
+
+    // Step 2: build the final authed client with credentials and explicit address
+    const authed = new ClobAny(host, chainId, walletClient, creds, 0, accountAddress);
+    return authed;
+  }
+
+  private async getAuthedClobClient(): Promise<any> {
+    // Validate cached client before returning — discard stale cache
+    if (this.authedClobClient) {
+      try {
+        const cached = this.authedClobClient;
+        const cachedAccount = cached?._walletClient?.account ?? cached?.walletClient?.account;
+        if (cachedAccount?.address) {
+          return this.authedClobClient;
+        }
+        this.authedClobClient = null;
+      } catch {
+        this.authedClobClient = null;
+      }
+    }
+
     const { createWalletClient, http } = await import('viem');
     const { polygon } = await import('viem/chains');
     const { privateKeyToAccount } = await import('viem/accounts');
 
     let pk = this.agent.wallet.privateKey;
+    if (!pk) throw new Error('Agent wallet has no privateKey — cannot create authenticated Polymarket client');
     if (!pk.startsWith('0x')) pk = `0x${pk}`;
 
     const account = privateKeyToAccount(pk as `0x${string}`);
+    if (!account.address) {
+      throw new Error(`privateKeyToAccount returned account with no address. PK starts with: ${pk.slice(0, 10)}`);
+    }
+
     const walletClient = createWalletClient({
       account,
       chain: polygon,
       transport: http('https://polygon-bor-rpc.publicnode.com'),
     });
 
-    // ClobClient v5.8.0 accepts viem WalletClient at runtime but types lag behind
-    const ClobAny = ClobClient as any;
-    const client = new ClobAny(
-      'https://clob.polymarket.com',
-      137,
-      walletClient,
-    );
-    const creds = await client.createOrDeriveApiKey();
-
-    this.authedClobClient = new ClobAny(
-      'https://clob.polymarket.com',
-      137,
-      walletClient,
-      creds,
-      0,
-      account.address,
-    );
-
+    this.authedClobClient = await this.buildAuthedClobClient(walletClient, account.address);
     return this.authedClobClient;
   }
 
@@ -2442,6 +2509,146 @@ export class EvalancheMCPServer {
           break;
         }
 
+        case 'pm_sell': {
+          const sellConditionId = args.conditionId as string;
+          const sellOutcome = (args.outcome as string).toUpperCase();
+          const sellAmountUSDC = parseFloat(args.amountUSDC as string);
+          const sellMaxSlippagePct = (args.maxSlippagePct as number) ?? 1;
+
+          if (!['YES', 'NO'].includes(sellOutcome)) {
+            throw new Error('outcome must be YES or NO');
+          }
+          if (isNaN(sellAmountUSDC) || sellAmountUSDC <= 0) {
+            throw new Error('amountUSDC must be a positive number');
+          }
+
+          // Look up tokenId from market (can use unauthenticated endpoint)
+          const sellMarket = await this.getPolymarket().getMarket(sellConditionId);
+          if (!sellMarket) throw new Error(`Market not found: ${sellConditionId}`);
+          const sellToken = sellMarket.tokens.find(
+            (t) => t.outcome.toUpperCase() === sellOutcome,
+          );
+          if (!sellToken) throw new Error(`Outcome ${sellOutcome} not found in market`);
+          const sellTokenId = sellToken.tokenId;
+
+          // Get best bid to determine token size
+          const sellOrderBook = await this.getPolymarket().getOrderBook(sellTokenId);
+          const bestBid = sellOrderBook.bids?.[0]?.price;
+          if (!bestBid || bestBid <= 0) {
+            throw new Error(`No bids available for ${sellOutcome} outcome. Cannot place sell order.`);
+          }
+
+          // Use authenticated client (getAuthedClobClient) — same path as pm_buy
+          const authed = await this.getAuthedClobClient();
+          const { Side } = await import('@polymarket/clob-client');
+
+          // Size = USDC target / best bid price
+          const size = sellAmountUSDC / bestBid;
+
+          const orderRes = await authed.createAndPostMarketOrder({
+            tokenID: sellTokenId,
+            side: Side.SELL,
+            amount: sellAmountUSDC,
+            feeRateBps: 0,
+            nonce: 0,
+          });
+
+          // Attempt to read back filled price
+          let avgFillPrice = bestBid;
+          let filledSize = size;
+          try {
+            const filled = await authed.getOrder(orderRes.orderID ?? orderRes.orderIds?.[0]);
+            if (filled) {
+              avgFillPrice = filled.average_fill_price ?? bestBid;
+              filledSize = filled.size ?? size;
+            }
+          } catch {
+            // getOrder is best-effort; use estimates
+          }
+
+          result = {
+            orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
+            status: orderRes?.status ?? 'submitted',
+            tokenId: sellTokenId,
+            outcome: sellOutcome,
+            size: filledSize,
+            averageFillPrice: avgFillPrice,
+            totalUSDC: filledSize * avgFillPrice,
+            proceedsTargetUSDC: sellAmountUSDC,
+            bestBidAtTime: bestBid,
+          };
+          break;
+        }
+
+
+        case 'pm_limit_sell': {
+          const lsConditionId = args.conditionId as string;
+          const lsOutcome = (args.outcome as string).toUpperCase();
+          const lsPrice = parseFloat(String(args.price));
+          const lsShares = parseFloat(args.shares as string);
+          const lsPostOnly = (args.postOnly as boolean) ?? true;
+
+          if (!['YES', 'NO'].includes(lsOutcome)) {
+            throw new Error('outcome must be YES or NO');
+          }
+          if (isNaN(lsPrice) || lsPrice <= 0 || lsPrice >= 1) {
+            throw new Error('price must be between 0 and 1 (exclusive)');
+          }
+          if (isNaN(lsShares) || lsShares <= 0) {
+            throw new Error('shares must be a positive number');
+          }
+
+          // Get market tokenId (unauthenticated read is fine)
+          const lsMarket = await this.getPolymarket().getMarket(lsConditionId);
+          if (!lsMarket) throw new Error(`Market not found: ${lsConditionId}`);
+          const lsToken = lsMarket.tokens.find(
+            (t) => t.outcome.toUpperCase() === lsOutcome,
+          );
+          if (!lsToken) throw new Error(`Outcome ${lsOutcome} not found in market`);
+          const lsTokenId = lsToken.tokenId;
+
+          // Use authenticated client
+          const authed = await this.getAuthedClobClient();
+          const { Side } = await import('@polymarket/clob-client');
+          const OrderType = (authed as any).constructor.OrderType ?? (authed as any).OrderType ?? { GTC: 'GTC', GTD: 'GTD', FOK: 'FOK', FAK: 'FAK' };
+
+          // Fetch tick size and neg_risk from the market
+          const marketInfo = await authed.getMarket(lsConditionId);
+          const tickSize = parseFloat(marketInfo?.minimum_tick_size ?? '0.01');
+          const negRisk = marketInfo?.neg_risk ?? false;
+
+          const orderRes = await authed.createAndPostOrder(
+            {
+              tokenID: lsTokenId,
+              price: lsPrice,
+              side: Side.SELL,
+              size: lsShares,
+              feeRateBps: 0,
+              nonce: 0,
+            },
+            {
+              tickSize: String(tickSize),
+              negRisk,
+            },
+            OrderType.GTC,
+            false, // deferExec
+            lsPostOnly, // postOnly
+          );
+
+          result = {
+            orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
+            status: orderRes?.status ?? 'POSTED',
+            tokenId: lsTokenId,
+            outcome: lsOutcome,
+            price: lsPrice,
+            shares: lsShares,
+            totalProceeds: lsPrice * lsShares,
+            postOnly: lsPostOnly,
+            orderType: 'GTC',
+          };
+          break;
+        }
+
         case 'pm_redeem':
           throw new Error('pm_redeem is not yet implemented (requires CTF contract interaction)');
 
@@ -2470,7 +2677,6 @@ export class EvalancheMCPServer {
     process.stdin.on('data', async (chunk: string) => {
       buffer += chunk;
 
-      // Process complete JSON-RPC messages (newline-delimited)
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
 
@@ -2482,9 +2688,7 @@ export class EvalancheMCPServer {
           const request = JSON.parse(trimmed) as MCPRequest;
           const response = await this.handleRequest(request);
 
-          // Notifications don't get responses
           if (request.method.startsWith('notifications/')) continue;
-
           process.stdout.write(JSON.stringify(response) + '\n');
         } catch {
           const errResponse: MCPResponse = {

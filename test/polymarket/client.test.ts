@@ -23,11 +23,13 @@ describe('PolymarketClient', () => {
     const { Wallet } = require('ethers');
     const wallet = Wallet.createRandom();
     const client = new PolymarketClient(wallet);
-    client.getMarkets = async () => [
+    const mockMarkets = [
       { conditionId: '1', question: 'Will AVAX hit $100?', description: 'Avalanche price target', tokens: [] },
       { conditionId: '2', question: 'Will ETH outperform BTC?', description: 'Layer 1 rotation', tokens: [] },
       { conditionId: '3', question: 'Macro slowdown', description: 'Polygon activity growth', tokens: [] },
     ];
+    client.getLiveMarkets = async () => mockMarkets;
+    client.getMarkets = async () => mockMarkets;
 
     await expect(client.searchMarkets('avax', 10)).resolves.toEqual([
       { conditionId: '1', question: 'Will AVAX hit $100?', description: 'Avalanche price target', tokens: [] },
