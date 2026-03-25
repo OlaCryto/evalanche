@@ -24,7 +24,7 @@ import type { SimulationResult } from './economy/simulation';
 import { BridgeClient } from './bridge';
 import type { BridgeQuoteParams, BridgeQuote, TransferStatusParams, TransferStatus, LiFiToken, LiFiChain, LiFiTools, LiFiGasPrices, LiFiGasSuggestion, LiFiConnection } from './bridge/lifi';
 import type { GasZipParams } from './bridge/gaszip';
-import type { DydxClient, PerpMarket } from './perps';
+import type { DydxClient, HyperliquidClient, PerpMarket } from './perps';
 // Avalanche multi-VM types only (actual imports are lazy to avoid loading
 // @avalabs/core-wallets-sdk at construction time — it has heavy native deps)
 import type { ChainAlias, TransferResult, MultiChainBalance, StakeInfo, ValidatorInfo, MinStakeAmounts } from './avalanche/types';
@@ -67,6 +67,7 @@ export class Evalanche {
   private transactionBuilder: TransactionBuilder;
   private _bridgeClient?: BridgeClient;
   private _dydxClient?: DydxClient;
+  private _hyperliquidClient?: HyperliquidClient;
   private _policyEngine?: PolicyEngine;
   private readonly _chainId: number;
 
@@ -569,6 +570,24 @@ export class Evalanche {
   }
 
   /**
+   * Get or create the Hyperliquid client (lazy-initialized).
+   * Uses the agent wallet address for account reads. Trading methods are scaffolded
+   * but intentionally not implemented until nonce/signing support is added.
+   */
+  async hyperliquid(): Promise<HyperliquidClient> {
+    if (!this._hyperliquidClient) {
+      const { HyperliquidClient } = await import('./perps/hyperliquid/client');
+      this._hyperliquidClient = new HyperliquidClient({
+        signer: this.wallet,
+        address: this.address,
+      });
+      await this._hyperliquidClient.connect();
+    }
+
+    return this._hyperliquidClient;
+  }
+
+  /**
    * Get or create the interop identity resolver (lazy-initialized).
    * Resolves full ERC-8004 registration files, service endpoints,
    * wallet addresses, and endpoint bindings.
@@ -608,21 +627,38 @@ export class Evalanche {
    * Find a perpetual market ticker across connected perp venues.
    */
   async findPerpMarket(ticker: string): Promise<{ venue: string; market: PerpMarket } | null> {
-    try {
-      const dydx = await this.dydx();
-      const markets = await dydx.getMarkets();
-      const match = markets.find((market) => market.ticker.toUpperCase() === ticker.toUpperCase());
-      if (match) {
-        return { venue: dydx.name, market: match };
+    const venues: Array<() => Promise<{ name: string; getMarkets(): Promise<PerpMarket[]> }>> = [
+      async () => this.hyperliquid(),
+    ];
+
+    if (this._mnemonic) {
+      venues.unshift(async () => this.dydx());
+    }
+
+    const errors: Error[] = [];
+
+    for (const loadVenue of venues) {
+      try {
+        const venue = await loadVenue();
+        const markets = await venue.getMarkets();
+        const match = markets.find((market) => market.ticker.toUpperCase() === ticker.toUpperCase());
+        if (match) {
+          return { venue: venue.name, market: match };
+        }
+      } catch (cause) {
+        if (cause instanceof Error) errors.push(cause);
       }
-      return null;
-    } catch (cause) {
+    }
+
+    if (errors.length === venues.length && errors.length > 0) {
       throw new EvalancheError(
         `Failed to find perpetual market: ${ticker}`,
         EvalancheErrorCode.PERPS_ERROR,
-        cause instanceof Error ? cause : undefined,
+        errors[0],
       );
     }
+
+    return null;
   }
 
   /**

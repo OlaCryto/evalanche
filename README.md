@@ -373,7 +373,7 @@ await baseVaults.deposit(YOUSD, '1000', 'base'); // approve + deposit in one cal
 await baseVaults.withdraw(YOUSD, '998.1', 'base'); // redeem shares
 ```
 
-### dYdX v4 Perpetuals (v0.7.0)
+### Perpetuals: dYdX + Hyperliquid (v0.7.0+)
 
 ```typescript
 const agent = new Evalanche({ mnemonic: '...', network: 'avalanche' });
@@ -403,9 +403,16 @@ await dydx.closePosition('AKT-USD');
 
 // Check balance
 const balance = await dydx.getBalance(); // USDC equity
+
+// Hyperliquid account and market reads use the agent wallet address
+const hyperliquid = await agent.hyperliquid();
+const hlMarkets = await hyperliquid.getMarkets();
+const hlState = await hyperliquid.getAccountState();
 ```
 
 > **Note:** dYdX requires a mnemonic (not just a private key) because it derives Cosmos keys from BIP-39.
+>
+> **Hyperliquid note:** Hyperliquid is modeled as the second perp venue. HIP-3 markets are represented as Hyperliquid market metadata (`marketClass: 'hip3'`), not as a separate venue. The current adapter supports market/account reads and reserves trading methods for a dedicated nonce/signing pass.
 
 ### Platform CLI — Advanced P-Chain Ops (v0.6.0)
 

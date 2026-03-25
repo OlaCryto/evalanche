@@ -432,7 +432,10 @@ export class DydxClient implements PerpVenue {
       : (Number(size) >= 0 ? 'LONG' : 'SHORT');
 
     return {
+      venue: 'dydx',
       market,
+      marketId: market,
+      marketClass: 'validator',
       side,
       size: String(Math.abs(Number(size))),
       entryPrice: this.pickString(item, ['entryPrice', 'entryPriceQuote'], '0'),
@@ -449,7 +452,10 @@ export class DydxClient implements PerpVenue {
     const imf = Number(initialMarginFraction);
 
     return {
+      venue: 'dydx',
       ticker,
+      marketId: ticker,
+      marketClass: 'validator',
       status: this.pickString(item, ['status'], 'UNKNOWN'),
       oraclePrice: this.pickString(item, ['oraclePrice'], '0'),
       volume24H: this.pickString(item, ['volume24H', 'volume24h'], '0'),

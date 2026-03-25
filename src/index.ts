@@ -46,7 +46,7 @@ export type {
 export { ArenaSwapClient } from './swap/arena';
 export { YieldYakClient } from './swap/yak';
 
-export { DydxClient, PerpClient, DYDX_MARKETS, market } from './perps';
+export { DydxClient, HyperliquidClient, PerpClient, DYDX_MARKETS, market } from './perps';
 export type {
   DydxMarketRef,
   MarketOrderParams,
@@ -54,7 +54,12 @@ export type {
   PerpPosition,
   PerpMarket,
   DydxSubaccount,
+  HyperliquidAccountState,
+  HyperliquidMarket,
+  HyperliquidMarketMetadata,
+  HyperliquidPosition,
   PerpVenue,
+  PerpMarketClass,
   PerpVenueName,
 } from './perps';
 
