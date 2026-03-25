@@ -156,7 +156,7 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('1.7.2');
+    expect(result.serverInfo.version).toBe('1.7.5');
   });
 
   it('lists tools including new bridge/chain tools', async () => {

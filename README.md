@@ -757,7 +757,13 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.2 (current)
+### v1.7.5 (current)
+- **Perps + routing + roadmap consolidation**
+- Li.Fi routes now support explicit route strategy selection, including minimum slippage, minimum execution-time bias, and fastest-route selection
+- perpetuals were refactored around a venue-neutral model with Hyperliquid added as a first-class venue and HIP-3 represented as Hyperliquid market metadata
+- the roadmap was consolidated into a single active `ROADMAP.md`
+
+### v1.7.2
 - **Release pipeline validation**
 - follows `1.7.1` with the ClawHub publish slug fixed in CI
 - intended to validate the full tag-driven release flow end-to-end, including skill publication
