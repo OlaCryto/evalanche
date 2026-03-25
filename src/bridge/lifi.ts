@@ -68,6 +68,22 @@ export interface LiFiConnection {
   toTokens: LiFiToken[];
 }
 
+export type LiFiRouteOrder = 'FASTEST' | 'CHEAPEST';
+
+export type LiFiRouteStrategy =
+  | 'recommended'
+  | 'minimum_slippage'
+  | 'minimum_execution_time'
+  | 'fastest_route'
+  | 'minimum_completion_time';
+
+export interface LiFiTimingStrategy {
+  strategy?: 'minWaitTime';
+  minWaitTimeMs: number;
+  startingExpectedResults: number;
+  reduceEveryMs: number;
+}
+
 /** Parameters for requesting a bridge quote */
 export interface BridgeQuoteParams {
   /** Source chain ID */
@@ -88,6 +104,25 @@ export interface BridgeQuoteParams {
   slippage?: number;
   /** Token decimals for fromToken (default 18) */
   fromDecimals?: number;
+  /**
+   * High-level routing strategy preset. Use this when you want to bias for:
+   * - `minimum_slippage`: lower slippage tolerance and stablecoin routing preset
+   * - `minimum_execution_time`: faster quote/route response from LI.FI
+   * - `fastest_route` / `minimum_completion_time`: shortest estimated route duration
+   */
+  routeStrategy?: LiFiRouteStrategy;
+  /** Explicit LI.FI route ordering override */
+  routeOrder?: LiFiRouteOrder;
+  /** Optional LI.FI routing preset (for example `stablecoin`) */
+  preset?: string;
+  /** Optional max price impact filter passed through to LI.FI */
+  maxPriceImpact?: number;
+  /** Skip LI.FI simulation to reduce quote latency when acceptable */
+  skipSimulation?: boolean;
+  /** Low-level LI.FI timing strategies for swap steps */
+  swapStepTimingStrategies?: LiFiTimingStrategy[];
+  /** Low-level LI.FI timing strategies for route discovery */
+  routeTimingStrategies?: LiFiTimingStrategy[];
 }
 
 /** A bridge quote returned by Li.Fi */
@@ -116,6 +151,23 @@ export interface BridgeQuote {
   rawRoute: unknown;
 }
 
+interface LiFiResolvedRouteOptions {
+  slippage?: number;
+  order?: LiFiRouteOrder;
+  preset?: string;
+  maxPriceImpact?: number;
+  skipSimulation?: boolean;
+  swapStepTimingStrategies?: string[];
+  routeTimingStrategies?: string[];
+}
+
+const FAST_RESPONSE_TIMING_STRATEGY: LiFiTimingStrategy = {
+  strategy: 'minWaitTime',
+  minWaitTimeMs: 200,
+  startingExpectedResults: 1,
+  reduceEveryMs: 200,
+};
+
 /**
  * Li.Fi bridge client — handles cross-chain token bridging via the Li.Fi REST API.
  */
@@ -134,6 +186,7 @@ export class LiFiClient {
   async getQuote(params: BridgeQuoteParams): Promise<BridgeQuote> {
     const decimals = await this.resolveFromDecimals(params);
     const fromAmount = parseUnits(params.fromAmount, decimals).toString();
+    const routeOptions = this.resolveRouteOptions(params);
 
     const searchParams = new URLSearchParams({
       fromChain: params.fromChainId.toString(),
@@ -143,9 +196,23 @@ export class LiFiClient {
       fromAmount,
       fromAddress: params.fromAddress,
       toAddress: params.toAddress ?? params.fromAddress,
-      slippage: (params.slippage ?? 0.03).toString(),
+      slippage: (routeOptions.slippage ?? 0.03).toString(),
       integrator: 'evalanche',
     });
+    if (routeOptions.order) searchParams.set('order', routeOptions.order);
+    if (routeOptions.preset) searchParams.set('preset', routeOptions.preset);
+    if (routeOptions.maxPriceImpact !== undefined) {
+      searchParams.set('maxPriceImpact', routeOptions.maxPriceImpact.toString());
+    }
+    if (routeOptions.skipSimulation !== undefined) {
+      searchParams.set('skipSimulation', String(routeOptions.skipSimulation));
+    }
+    for (const strategy of routeOptions.swapStepTimingStrategies ?? []) {
+      searchParams.append('swapStepTimingStrategies', strategy);
+    }
+    for (const strategy of routeOptions.routeTimingStrategies ?? []) {
+      searchParams.append('routeTimingStrategies', strategy);
+    }
 
     const res = await safeFetch(`${LIFI_API}/quote?${searchParams}`, { timeoutMs: 15_000, maxBytes: 2_000_000 });
 
@@ -169,6 +236,7 @@ export class LiFiClient {
   async getRoutes(params: BridgeQuoteParams): Promise<BridgeQuote[]> {
     const decimals = await this.resolveFromDecimals(params);
     const fromAmount = parseUnits(params.fromAmount, decimals).toString();
+    const routeOptions = this.resolveRouteOptions(params);
 
     const body = {
       fromChainId: params.fromChainId,
@@ -179,9 +247,14 @@ export class LiFiClient {
       fromAddress: params.fromAddress,
       toAddress: params.toAddress ?? params.fromAddress,
       options: {
-        slippage: params.slippage ?? 0.03,
+        slippage: routeOptions.slippage ?? 0.03,
         integrator: 'evalanche',
-        order: 'RECOMMENDED',
+        ...(routeOptions.order ? { order: routeOptions.order } : {}),
+        ...(routeOptions.preset ? { preset: routeOptions.preset } : {}),
+        ...(routeOptions.maxPriceImpact !== undefined ? { maxPriceImpact: routeOptions.maxPriceImpact } : {}),
+        ...(routeOptions.skipSimulation !== undefined ? { skipSimulation: routeOptions.skipSimulation } : {}),
+        ...(routeOptions.swapStepTimingStrategies ? { swapStepTimingStrategies: routeOptions.swapStepTimingStrategies } : {}),
+        ...(routeOptions.routeTimingStrategies ? { routeTimingStrategies: routeOptions.routeTimingStrategies } : {}),
       },
     };
 
@@ -467,6 +540,55 @@ export class LiFiClient {
     } catch {
       return 18;
     }
+  }
+
+  private resolveRouteOptions(params: BridgeQuoteParams): LiFiResolvedRouteOptions {
+    let slippage = params.slippage;
+    let order = params.routeOrder;
+    let preset = params.preset;
+    let maxPriceImpact = params.maxPriceImpact;
+    let skipSimulation = params.skipSimulation;
+    let swapStepTimingStrategies = params.swapStepTimingStrategies;
+    let routeTimingStrategies = params.routeTimingStrategies;
+
+    switch (params.routeStrategy) {
+      case 'minimum_slippage':
+        slippage ??= 0.005;
+        preset ??= 'stablecoin';
+        maxPriceImpact ??= 0.05;
+        break;
+      case 'minimum_execution_time':
+        skipSimulation ??= true;
+        swapStepTimingStrategies ??= [FAST_RESPONSE_TIMING_STRATEGY];
+        routeTimingStrategies ??= [FAST_RESPONSE_TIMING_STRATEGY];
+        break;
+      case 'fastest_route':
+      case 'minimum_completion_time':
+        order ??= 'FASTEST';
+        break;
+      case 'recommended':
+      default:
+        break;
+    }
+
+    return {
+      slippage,
+      order,
+      preset,
+      maxPriceImpact,
+      skipSimulation,
+      swapStepTimingStrategies: this.encodeTimingStrategies(swapStepTimingStrategies),
+      routeTimingStrategies: this.encodeTimingStrategies(routeTimingStrategies),
+    };
+  }
+
+  private encodeTimingStrategies(strategies?: LiFiTimingStrategy[]): string[] | undefined {
+    if (!strategies?.length) return undefined;
+
+    return strategies.map((strategy) => {
+      const type = strategy.strategy ?? 'minWaitTime';
+      return `${type}-${strategy.minWaitTimeMs}-${strategy.startingExpectedResults}-${strategy.reduceEveryMs}`;
+    });
   }
 
   private expectString(value: unknown, field: string): string {

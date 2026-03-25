@@ -3,13 +3,38 @@
  */
 
 export { LiFiClient, NATIVE_TOKEN } from './lifi';
-export type { BridgeQuoteParams, BridgeQuote, TransferStatus, TransferStatusParams, LiFiToken, LiFiChain, LiFiTools, LiFiGasPrices, LiFiGasSuggestion, LiFiConnection } from './lifi';
+export type {
+  BridgeQuoteParams,
+  BridgeQuote,
+  TransferStatus,
+  TransferStatusParams,
+  LiFiToken,
+  LiFiChain,
+  LiFiTools,
+  LiFiGasPrices,
+  LiFiGasSuggestion,
+  LiFiConnection,
+  LiFiRouteOrder,
+  LiFiRouteStrategy,
+  LiFiTimingStrategy,
+} from './lifi';
 export { GasZipClient } from './gaszip';
 export type { GasZipParams, GasZipQuote } from './gaszip';
 
 import type { AgentSigner } from '../wallet/signer';
 import { LiFiClient } from './lifi';
-import type { BridgeQuoteParams, BridgeQuote, TransferStatus, TransferStatusParams, LiFiToken, LiFiChain, LiFiTools, LiFiGasPrices, LiFiGasSuggestion, LiFiConnection } from './lifi';
+import type {
+  BridgeQuoteParams,
+  BridgeQuote,
+  TransferStatus,
+  TransferStatusParams,
+  LiFiToken,
+  LiFiChain,
+  LiFiTools,
+  LiFiGasPrices,
+  LiFiGasSuggestion,
+  LiFiConnection,
+} from './lifi';
 import { GasZipClient } from './gaszip';
 import type { GasZipParams, GasZipQuote } from './gaszip';
 

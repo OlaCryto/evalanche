@@ -36,6 +36,9 @@ export type {
   LiFiGasPrices,
   LiFiGasSuggestion,
   LiFiConnection,
+  LiFiRouteOrder,
+  LiFiRouteStrategy,
+  LiFiTimingStrategy,
   GasZipParams,
   GasZipQuote,
 } from './bridge';

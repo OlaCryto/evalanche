@@ -454,6 +454,11 @@ const TOOLS: MCPTool[] = [
         toToken: { type: 'string', description: 'Destination token address' },
         fromAmount: { type: 'string', description: 'Amount to swap (human-readable, e.g. "1.0")' },
         slippage: { type: 'number', description: 'Slippage tolerance as decimal (default: 0.03 = 3%)' },
+        routeStrategy: { type: 'string', description: 'High-level routing strategy: recommended, minimum_slippage, minimum_execution_time, fastest_route, minimum_completion_time' },
+        routeOrder: { type: 'string', description: 'Explicit Li.Fi route ordering override: FASTEST or CHEAPEST' },
+        preset: { type: 'string', description: 'Optional Li.Fi preset such as stablecoin' },
+        maxPriceImpact: { type: 'number', description: 'Optional max price impact filter passed to Li.Fi' },
+        skipSimulation: { type: 'boolean', description: 'Skip Li.Fi simulation to reduce quote latency' },
       },
       required: ['chainId', 'fromToken', 'toToken', 'fromAmount'],
     },
@@ -469,6 +474,11 @@ const TOOLS: MCPTool[] = [
         toToken: { type: 'string', description: 'Destination token address' },
         fromAmount: { type: 'string', description: 'Amount to swap (human-readable, e.g. "1.0")' },
         slippage: { type: 'number', description: 'Slippage tolerance as decimal (default: 0.03 = 3%)' },
+        routeStrategy: { type: 'string', description: 'High-level routing strategy: recommended, minimum_slippage, minimum_execution_time, fastest_route, minimum_completion_time' },
+        routeOrder: { type: 'string', description: 'Explicit Li.Fi route ordering override: FASTEST or CHEAPEST' },
+        preset: { type: 'string', description: 'Optional Li.Fi preset such as stablecoin' },
+        maxPriceImpact: { type: 'number', description: 'Optional max price impact filter passed to Li.Fi' },
+        skipSimulation: { type: 'boolean', description: 'Skip Li.Fi simulation to reduce quote latency' },
       },
       required: ['chainId', 'fromToken', 'toToken', 'fromAmount'],
     },
@@ -553,6 +563,11 @@ const TOOLS: MCPTool[] = [
         toVaultToken: { type: 'string', description: 'Vault/staking token address on destination chain' },
         fromAmount: { type: 'string', description: 'Amount to send (human-readable, e.g. "1.0")' },
         slippage: { type: 'number', description: 'Slippage tolerance as decimal (default: 0.03 = 3%)' },
+        routeStrategy: { type: 'string', description: 'High-level routing strategy: recommended, minimum_slippage, minimum_execution_time, fastest_route, minimum_completion_time' },
+        routeOrder: { type: 'string', description: 'Explicit Li.Fi route ordering override: FASTEST or CHEAPEST' },
+        preset: { type: 'string', description: 'Optional Li.Fi preset such as stablecoin' },
+        maxPriceImpact: { type: 'number', description: 'Optional max price impact filter passed to Li.Fi' },
+        skipSimulation: { type: 'boolean', description: 'Skip Li.Fi simulation to reduce quote latency' },
       },
       required: ['fromChainId', 'toChainId', 'fromToken', 'toVaultToken', 'fromAmount'],
     },
@@ -1741,6 +1756,11 @@ export class EvalancheMCPServer {
             fromAmount: args.fromAmount as string,
             fromAddress: this.agent.address,
             slippage: args.slippage as number | undefined,
+            routeStrategy: args.routeStrategy as 'recommended' | 'minimum_slippage' | 'minimum_execution_time' | 'fastest_route' | 'minimum_completion_time' | undefined,
+            routeOrder: args.routeOrder as 'FASTEST' | 'CHEAPEST' | undefined,
+            preset: args.preset as string | undefined,
+            maxPriceImpact: args.maxPriceImpact as number | undefined,
+            skipSimulation: args.skipSimulation as boolean | undefined,
           });
           result = {
             id: quote.id,
@@ -1765,6 +1785,11 @@ export class EvalancheMCPServer {
             fromAmount: args.fromAmount as string,
             fromAddress: this.agent.address,
             slippage: args.slippage as number | undefined,
+            routeStrategy: args.routeStrategy as 'recommended' | 'minimum_slippage' | 'minimum_execution_time' | 'fastest_route' | 'minimum_completion_time' | undefined,
+            routeOrder: args.routeOrder as 'FASTEST' | 'CHEAPEST' | undefined,
+            preset: args.preset as string | undefined,
+            maxPriceImpact: args.maxPriceImpact as number | undefined,
+            skipSimulation: args.skipSimulation as boolean | undefined,
           });
           break;
         }
@@ -1821,6 +1846,11 @@ export class EvalancheMCPServer {
             fromAmount: args.fromAmount as string,
             fromAddress: this.agent.address,
             slippage: args.slippage as number | undefined,
+            routeStrategy: args.routeStrategy as 'recommended' | 'minimum_slippage' | 'minimum_execution_time' | 'fastest_route' | 'minimum_completion_time' | undefined,
+            routeOrder: args.routeOrder as 'FASTEST' | 'CHEAPEST' | undefined,
+            preset: args.preset as string | undefined,
+            maxPriceImpact: args.maxPriceImpact as number | undefined,
+            skipSimulation: args.skipSimulation as boolean | undefined,
           });
           result = txResult;
           break;

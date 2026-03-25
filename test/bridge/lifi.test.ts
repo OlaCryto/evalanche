@@ -86,6 +86,106 @@ describe('LiFiClient', () => {
 
       await expect(client.getQuote(baseParams)).rejects.toThrow('Li.Fi quote failed');
     });
+
+    it('should apply the minimum slippage strategy defaults', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'quote-low-slip',
+          tool: 'across',
+          action: {
+            fromChainId: 1,
+            toChainId: 42161,
+            fromToken: { address: NATIVE_TOKEN },
+            toToken: { address: NATIVE_TOKEN },
+            fromAmount: '100000000000000000',
+          },
+          estimate: {
+            toAmount: '99000000000000000',
+            gasCosts: [{ amountUSD: '2.50' }],
+            executionDuration: 120,
+          },
+        }),
+      });
+
+      await client.getQuote({
+        ...baseParams,
+        routeStrategy: 'minimum_slippage',
+      });
+
+      const callUrl = new URL(mockFetch.mock.calls[0][0] as string);
+      expect(callUrl.searchParams.get('slippage')).toBe('0.005');
+      expect(callUrl.searchParams.get('preset')).toBe('stablecoin');
+      expect(callUrl.searchParams.get('maxPriceImpact')).toBe('0.05');
+    });
+
+    it('should apply the minimum execution time strategy defaults', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'quote-fast-response',
+          tool: 'across',
+          action: {
+            fromChainId: 1,
+            toChainId: 42161,
+            fromToken: { address: NATIVE_TOKEN },
+            toToken: { address: NATIVE_TOKEN },
+            fromAmount: '100000000000000000',
+          },
+          estimate: {
+            toAmount: '99000000000000000',
+            gasCosts: [{ amountUSD: '2.50' }],
+            executionDuration: 120,
+          },
+        }),
+      });
+
+      await client.getQuote({
+        ...baseParams,
+        routeStrategy: 'minimum_execution_time',
+      });
+
+      const callUrl = new URL(mockFetch.mock.calls[0][0] as string);
+      expect(callUrl.searchParams.get('skipSimulation')).toBe('true');
+      expect(callUrl.searchParams.getAll('swapStepTimingStrategies')).toEqual(['minWaitTime-200-1-200']);
+      expect(callUrl.searchParams.getAll('routeTimingStrategies')).toEqual(['minWaitTime-200-1-200']);
+    });
+
+    it('should support explicit fastest route ordering and timing overrides', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'quote-fastest',
+          tool: 'across',
+          action: {
+            fromChainId: 1,
+            toChainId: 42161,
+            fromToken: { address: NATIVE_TOKEN },
+            toToken: { address: NATIVE_TOKEN },
+            fromAmount: '100000000000000000',
+          },
+          estimate: {
+            toAmount: '99000000000000000',
+            gasCosts: [{ amountUSD: '2.50' }],
+            executionDuration: 120,
+          },
+        }),
+      });
+
+      await client.getQuote({
+        ...baseParams,
+        routeOrder: 'FASTEST',
+        swapStepTimingStrategies: [{
+          minWaitTimeMs: 500,
+          startingExpectedResults: 2,
+          reduceEveryMs: 250,
+        }],
+      });
+
+      const callUrl = new URL(mockFetch.mock.calls[0][0] as string);
+      expect(callUrl.searchParams.get('order')).toBe('FASTEST');
+      expect(callUrl.searchParams.getAll('swapStepTimingStrategies')).toEqual(['minWaitTime-500-2-250']);
+    });
   });
 
   describe('getRoutes', () => {
@@ -133,6 +233,28 @@ describe('LiFiClient', () => {
 
       const routes = await client.getRoutes(baseParams);
       expect(routes).toHaveLength(0);
+    });
+
+    it('should pass route strategy options into advanced route requests', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ routes: [] }),
+      });
+
+      await client.getRoutes({
+        ...baseParams,
+        routeStrategy: 'minimum_execution_time',
+        routeOrder: 'FASTEST',
+      });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1]?.body as string) as {
+        options: Record<string, unknown>;
+      };
+
+      expect(body.options.order).toBe('FASTEST');
+      expect(body.options.skipSimulation).toBe(true);
+      expect(body.options.swapStepTimingStrategies).toEqual(['minWaitTime-200-1-200']);
+      expect(body.options.routeTimingStrategies).toEqual(['minWaitTime-200-1-200']);
     });
   });
 
@@ -427,6 +549,26 @@ describe('LiFiClient', () => {
       });
 
       await expect(client.getGasSuggestion(999999)).rejects.toThrow('Li.Fi gas suggestion failed');
+    });
+
+    it('should normalize the nested gas suggestion payload shape', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          recommended: { amount: '20000000000' },
+          limit: { amount: '30000000000' },
+          fromAmount: '21000',
+          available: true,
+        }),
+      });
+
+      const suggestion = await client.getGasSuggestion(1);
+
+      expect(suggestion.standard).toBe('20000000000');
+      expect(suggestion.fast).toBe('30000000000');
+      expect(suggestion.slow).toBe('20000000000');
+      expect(suggestion.available).toBe('true');
+      expect(suggestion.fromAmount).toBe('21000');
     });
   });
 

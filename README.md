@@ -166,6 +166,35 @@ const routes = await agent.getBridgeRoutes({
   toToken: '0x0000000000000000000000000000000000000000',
   fromAmount: '0.1', fromAddress: agent.address,
 });
+
+// Bias route selection via LI.FI configuration
+const fastestRoute = await agent.getBridgeQuote({
+  fromChainId: 1,
+  toChainId: 8453,
+  fromToken: '0x0000000000000000000000000000000000000000',
+  toToken: '0x0000000000000000000000000000000000000000',
+  fromAmount: '0.1',
+  fromAddress: agent.address,
+  routeStrategy: 'fastest_route',
+});
+
+const lowSlippageRoute = await agent.getBridgeQuote({
+  fromChainId: 1,
+  toChainId: 8453,
+  fromToken: '0x0000000000000000000000000000000000000000',
+  toToken: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  fromAmount: '100',
+  fromAddress: agent.address,
+  routeStrategy: 'minimum_slippage',
+  slippage: 0.003,
+});
+
+// Available route strategies:
+// - recommended
+// - minimum_slippage
+// - minimum_execution_time
+// - fastest_route
+// - minimum_completion_time
 ```
 
 #### DeFi Composer (Zaps)
@@ -288,6 +317,8 @@ Create an agent with existing keys.
 | `agent.getGasPrices()` | Get gas prices across all chains |
 | `agent.getGasSuggestion(chainId)` | Get gas price suggestion for a chain |
 | `agent.getLiFiConnections(params)` | Discover possible transfer paths between chains |
+
+`BridgeQuoteParams` also supports LI.FI route configuration via `routeStrategy`, `routeOrder`, `preset`, `maxPriceImpact`, `skipSimulation`, `swapStepTimingStrategies`, and `routeTimingStrategies`.
 
 ### Avalanche Multi-VM (X-Chain, P-Chain)
 
@@ -554,6 +585,8 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `lifi_gas_suggestion` | Get gas suggestion for a chain |
 | `lifi_get_connections` | Discover transfer paths between chains |
 | `lifi_compose` | Cross-chain DeFi Composer (bridge + vault/stake/lend) |
+
+`lifi_swap_quote`, `lifi_swap`, and `lifi_compose` also accept `routeStrategy`, `routeOrder`, `preset`, `maxPriceImpact`, and `skipSimulation`.
 | `resolve_agent_registration` | Resolve full ERC-8004 agent registration file |
 | `get_agent_services` | List service endpoints for an agent |
 | `get_agent_wallet` | Get agent payment wallet address |
