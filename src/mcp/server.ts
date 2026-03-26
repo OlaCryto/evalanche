@@ -2098,7 +2098,7 @@ export class EvalancheMCPServer {
     // Try deriveApiKey FIRST (GET — retrieves existing key).
     // createApiKey (POST) fails 400 if a key already exists.
     try {
-      creds = await (tempClient as any).deriveApiKey(this.nextPolymarketNonce());
+      creds = await tempClient.deriveApiKey();
       // Validate: the SDK returns {apiKey, secret, passphrase} but the API can
       // return 200 with an error body. Validate the creds structure.
       if (!creds?.key || !creds?.secret || !creds?.passphrase) {
@@ -2119,7 +2119,7 @@ export class EvalancheMCPServer {
       // 400 on derive, OR returned incomplete creds: try createOrDeriveApiKey
       if (deriveStatus === 400 || isIncomplete || deriveMsg.includes('400')) {
         try {
-          creds = await tempClient.createOrDeriveApiKey(this.nextPolymarketNonce());
+          creds = await tempClient.createOrDeriveApiKey();
           // Validate same structure
           if (!creds?.key || !creds?.secret || !creds?.passphrase) {
             throw Object.assign(

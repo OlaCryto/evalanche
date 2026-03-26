@@ -16,14 +16,26 @@ export default defineConfig([
     entry: ['src/mcp/cli.ts'],
     format: ['esm'],
     dts: false,
-    splitting: true,
+    splitting: false,
     sourcemap: false,
     clean: false,
     target: 'node18',
     banner: { js: '#!/usr/bin/env node' },
     outDir: 'dist/mcp',
-    // Don't bundle anything — use node_modules at runtime
-    // This ensures @avalabs/core-wallets-sdk is only loaded when multi-VM is used
-    noBundle: true,
+    // Don't bundle Avalanche-related deps — require them at runtime from node_modules
+    // This avoids Ledger SDK bundling issues while keeping the file small
+    external: [
+      '@avalabs/core-wallets-sdk',
+      '@avalabs/avalanchejs',
+      '@avalabs/core-chains-sdk',
+      '@avalabs/glacier-sdk',
+      '@avalabs/hw-app-avalanche',
+      '@dydxprotocol/v4-client-js',
+      '@ledgerhq/hw-transport',
+      '@ledgerhq/hw-app-eth',
+      '@ledgerhq/errors',
+      '@metamask/eth-sig-util',
+      'ledger-bitcoin',
+    ],
   },
 ]);
