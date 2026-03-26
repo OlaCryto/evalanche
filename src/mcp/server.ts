@@ -1310,10 +1310,23 @@ export class EvalancheMCPServer {
 
   }
 
-  private nextPolymarketNonce(): number {
-    const next = Math.max(Date.now(), this.lastPolymarketNonce + 1);
-    this.lastPolymarketNonce = next;
-    return next;
+  // Polymarket CLOB order nonces must exceed the CLOB's tracked counter.
+  // Use (Date.now() * 1M) as base to ensure nonces are always >> CLOB counter (~1.77T).
+  // This gives ~1.77T * 1M = 1.77Q unique nonces per millisecond.
+  // Also use _polymarketNonceSeq as a per-session sequence to handle sub-ms calls.
+  // L1 auth nonce for API key operations (deriveApiKey, createApiKey).
+  // Use a simple incrementing counter — Polymarket server accepts any positive integer.
+  private _l1AuthNonce = 0;
+  nextL1AuthNonce(): number {
+    return ++this._l1AuthNonce;
+  }
+
+  // Order nonce for EIP-712 signed orders.
+  // Must be > CLOB's off-chain counter (which tracks all orders including failed ones).
+  // Using BigInt(Date.now() * 1M + seq) ensures nonces are always >> CLOB counter.
+  private _orderNonceSeq = 0;
+  private nextPolymarketNonce(): bigint {
+    return BigInt(Date.now()) * 1_000_000n + BigInt(++this._orderNonceSeq);
   }
 
   private estimateSellFill(orderBook: { bids: Array<{ price: number; size: number }> }, size: number): {
@@ -1367,7 +1380,7 @@ export class EvalancheMCPServer {
     // Try deriveApiKey FIRST (GET — retrieves existing key).
     // createApiKey (POST) fails 400 if a key already exists.
     try {
-      creds = await (tempClient as any).deriveApiKey(this.nextPolymarketNonce());
+      creds = await (tempClient as any).deriveApiKey(this.nextL1AuthNonce());
       // Validate: the SDK returns {apiKey, secret, passphrase} but the API can
       // return 200 with an error body. Validate the creds structure.
       if (!creds?.key || !creds?.secret || !creds?.passphrase) {
@@ -1388,7 +1401,7 @@ export class EvalancheMCPServer {
       // 400 on derive, OR returned incomplete creds: try createOrDeriveApiKey
       if (deriveStatus === 400 || isIncomplete || deriveMsg.includes('400')) {
         try {
-          creds = await tempClient.createOrDeriveApiKey(this.nextPolymarketNonce());
+          creds = await tempClient.createOrDeriveApiKey(this.nextL1AuthNonce());
           // Validate same structure
           if (!creds?.key || !creds?.secret || !creds?.passphrase) {
             throw Object.assign(
@@ -1424,19 +1437,10 @@ export class EvalancheMCPServer {
   }
 
   private async getAuthedClobClient(): Promise<any> {
-    // Validate cached client before returning — discard stale cache
-    if (this.authedClobClient) {
-      try {
-        const cached = this.authedClobClient;
-        const cachedAccount = cached?._walletClient?.account ?? cached?.walletClient?.account;
-        if (cachedAccount?.address) {
-          return this.authedClobClient;
-        }
-        this.authedClobClient = null;
-      } catch {
-        this.authedClobClient = null;
-      }
-    }
+    // Always force a fresh authed client — Polymarket CLOB's off-chain nonce counter
+    // gets stuck after failed orders, causing "invalid nonce" on subsequent orders.
+    // A fresh auth resets the CLOB-side nonce tracking for the new session.
+    this.authedClobClient = null;
 
     const { createWalletClient, http } = await import('viem');
     const { polygon } = await import('viem/chains');
