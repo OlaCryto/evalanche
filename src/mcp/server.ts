@@ -1235,7 +1235,7 @@ const TOOLS: MCPTool[] = [
   },
   {
     name: 'pm_limit_sell',
-    description: 'Post a GTC (Good-Till-Cancel) limit SELL order on a Polymarket outcome. Posts as a maker order to the order book at the specified price. Use when pm_sell fills at the dust floor due to API key issues. Requires the market to have bids at your target price.',
+    description: 'Post a GTC (Good-Till-Cancel) limit SELL order on a Polymarket outcome. Use this when you want an explicit resting limit order instead of an immediate slippage-protected sell.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1279,6 +1279,7 @@ export class EvalancheMCPServer {
   private coingecko: CoinGeckoClient;
   private polymarket: PolymarketClient | null = null;
   private authedClobClient: any = null;
+  private lastPolymarketNonce = 0;
 
 
   constructor(config: EvalancheConfig) {
@@ -1309,6 +1310,45 @@ export class EvalancheMCPServer {
 
   }
 
+  private nextPolymarketNonce(): number {
+    const next = Math.max(Date.now(), this.lastPolymarketNonce + 1);
+    this.lastPolymarketNonce = next;
+    return next;
+  }
+
+  private estimateSellFill(orderBook: { bids: Array<{ price: number; size: number }> }, size: number): {
+    averagePrice: number;
+    filledSize: number;
+    hasFullLiquidity: boolean;
+  } {
+    let remaining = size;
+    let totalProceeds = 0;
+
+    for (const bid of orderBook.bids) {
+      if (remaining <= 0) break;
+      const fillSize = Math.min(remaining, bid.size);
+      totalProceeds += fillSize * bid.price;
+      remaining -= fillSize;
+    }
+
+    const filledSize = size - remaining;
+    if (filledSize <= 0) {
+      return { averagePrice: 0, filledSize: 0, hasFullLiquidity: false };
+    }
+
+    return {
+      averagePrice: totalProceeds / filledSize,
+      filledSize,
+      hasFullLiquidity: remaining <= 0,
+    };
+  }
+
+  private roundUpToTick(value: number, tickSize: number): number {
+    const precision = Math.max(0, (tickSize.toString().split('.')[1] ?? '').length);
+    const steps = Math.ceil((value + Number.EPSILON) / tickSize);
+    return Number((steps * tickSize).toFixed(precision));
+  }
+
   /**
    * Build an authenticated Polymarket CLOB client.
    * Handles the case where the wallet already has an API key — in that case
@@ -1322,24 +1362,59 @@ export class EvalancheMCPServer {
 
     // Step 1: create a temporary client to derive/create API credentials
     const tempClient = new ClobAny(host, chainId, walletClient);
-
     let creds: { key: string; secret: string; passphrase: string };
+
+    // Try deriveApiKey FIRST (GET — retrieves existing key).
+    // createApiKey (POST) fails 400 if a key already exists.
     try {
-      creds = await tempClient.createOrDeriveApiKey(0);
-    } catch (createErr: any) {
-      // If createApiKey fails because a key already exists (400), fall back to derive
-      const msg = createErr?.message ?? String(createErr);
-      if (msg.includes('400') || msg.includes('Could not create api key') || msg.includes('api key')) {
+      creds = await (tempClient as any).deriveApiKey(this.nextPolymarketNonce());
+      // Validate: the SDK returns {apiKey, secret, passphrase} but the API can
+      // return 200 with an error body. Validate the creds structure.
+      if (!creds?.key || !creds?.secret || !creds?.passphrase) {
+        throw Object.assign(
+          new Error(
+            `deriveApiKey returned incomplete credentials: ` +
+            `key=${creds?.key}, secret=${creds?.secret ? '[present]' : 'missing'}, ` +
+            `passphrase=${creds?.passphrase ? '[present]' : 'missing'}`,
+          ),
+          { status: 200, incomplete: true },
+        );
+      }
+    } catch (deriveErr: any) {
+      const deriveStatus = deriveErr?.response?.status ?? deriveErr?.status ?? 0;
+      const deriveMsg = deriveErr?.message ?? String(deriveErr);
+      const isIncomplete = deriveErr?.incomplete === true;
+
+      // 400 on derive, OR returned incomplete creds: try createOrDeriveApiKey
+      if (deriveStatus === 400 || isIncomplete || deriveMsg.includes('400')) {
         try {
-          creds = await (tempClient as any).deriveApiKey(0);
-        } catch (deriveErr: any) {
+          creds = await tempClient.createOrDeriveApiKey(this.nextPolymarketNonce());
+          // Validate same structure
+          if (!creds?.key || !creds?.secret || !creds?.passphrase) {
+            throw Object.assign(
+              new Error(
+                `createOrDeriveApiKey returned incomplete credentials: ` +
+                `key=${creds?.key}, secret=${creds?.secret ? '[present]' : 'missing'}, ` +
+                `passphrase=${creds?.passphrase ? '[present]' : 'missing'}`,
+              ),
+              { status: 200, incomplete: true },
+            );
+          }
+        } catch (createErr: any) {
+          const createMsg = createErr?.message ?? String(createErr);
+          const createStatus = createErr?.response?.status ?? createErr?.status ?? 0;
           throw new Error(
-            `Polymarket API key error — create failed (${msg}) and derive also failed: ${deriveErr?.message ?? String(deriveErr)}. ` +
-            `Ensure the wallet has an active Polymarket CLOB API key at https://clob.polymarket.com/keys`,
+            `Polymarket CLOB auth failed after both derive and create attempts. ` +
+            `deriveApiKey: status=${deriveStatus}, msg=${deriveMsg}. ` +
+            `createOrDeriveApiKey: status=${createStatus}, msg=${createMsg}. ` +
+            `Manual step required: visit https://clob.polymarket.com/keys to create or retrieve your API key.`,
           );
         }
       } else {
-        throw createErr;
+        throw new Error(
+          `Polymarket deriveApiKey failed: ${deriveMsg} (status ${deriveStatus}). ` +
+          `Check wallet connectivity and server clock.`,
+        );
       }
     }
 
@@ -2538,32 +2613,75 @@ export class EvalancheMCPServer {
             throw new Error(`No bids available for ${sellOutcome} outcome. Cannot place sell order.`);
           }
 
-          // Use authenticated client (getAuthedClobClient) — same path as pm_buy
-          const authed = await this.getAuthedClobClient();
-          const { Side } = await import('@polymarket/clob-client');
-
           // Size = USDC target / best bid price
           const size = sellAmountUSDC / bestBid;
+          const minAcceptablePrice = bestBid * (1 - sellMaxSlippagePct / 100);
+          const estimated = this.estimateSellFill(sellOrderBook, size);
+          if (!estimated.hasFullLiquidity) {
+            throw new Error(
+              `Not enough visible bid liquidity to sell ${size.toFixed(6)} shares without leaving remainder. ` +
+              `Use pm_limit_sell to post a resting order instead.`,
+            );
+          }
+          if (estimated.averagePrice < minAcceptablePrice) {
+            throw new Error(
+              `pm_sell would clear around $${estimated.averagePrice.toFixed(4)}, below the minimum acceptable ` +
+              `$${minAcceptablePrice.toFixed(4)} implied by maxSlippagePct=${sellMaxSlippagePct}. ` +
+              `Use pm_limit_sell to control execution price explicitly.`,
+            );
+          }
 
-          const orderRes = await authed.createAndPostMarketOrder({
-            tokenID: sellTokenId,
-            side: Side.SELL,
-            amount: sellAmountUSDC,
-            feeRateBps: 0,
-            nonce: 0,
-          });
+          // Use authenticated client (getAuthedClobClient) and submit a protected immediate sell.
+          const authed = await this.getAuthedClobClient();
+          let marketInfo: any = null;
+          try {
+            marketInfo = await authed.getMarket(sellConditionId);
+          } catch {
+            // Fall back to default tick size / negRisk below.
+          }
+
+          const tickSizeRaw = String(marketInfo?.minimum_tick_size ?? '0.01');
+          const tickSize = Math.max(parseFloat(tickSizeRaw) || 0.01, 0.0001);
+          const negRisk = marketInfo?.neg_risk ?? false;
+          const limitPrice = this.roundUpToTick(minAcceptablePrice, tickSize);
+          const { Side } = await import('@polymarket/clob-client');
+
+          const signedOrder = await authed.createOrder(
+            {
+              tokenID: sellTokenId,
+              price: limitPrice,
+              side: Side.SELL,
+              size,
+              feeRateBps: 0,
+              nonce: 0,
+            },
+            {
+              tickSize: String(tickSize),
+              negRisk,
+            },
+          );
+
+          const orderRes = await authed.postOrder(signedOrder, 'FAK', false);
 
           // Attempt to read back filled price
-          let avgFillPrice = bestBid;
-          let filledSize = size;
+          let avgFillPrice = estimated.averagePrice;
+          let filledSize = estimated.filledSize;
           try {
             const filled = await authed.getOrder(orderRes.orderID ?? orderRes.orderIds?.[0]);
             if (filled) {
-              avgFillPrice = filled.average_fill_price ?? bestBid;
-              filledSize = filled.size ?? size;
+              avgFillPrice = filled.average_fill_price ?? estimated.averagePrice;
+              filledSize = filled.size ?? estimated.filledSize;
             }
           } catch {
             // getOrder is best-effort; use estimates
+          }
+
+          if (avgFillPrice < minAcceptablePrice) {
+            throw new Error(
+              `Protected sell executed below the configured minimum acceptable price ` +
+              `($${avgFillPrice.toFixed(4)} < $${minAcceptablePrice.toFixed(4)}). ` +
+              `The sell was rejected as unsafe.`,
+            );
           }
 
           result = {
@@ -2576,6 +2694,11 @@ export class EvalancheMCPServer {
             totalUSDC: filledSize * avgFillPrice,
             proceedsTargetUSDC: sellAmountUSDC,
             bestBidAtTime: bestBid,
+            estimatedAveragePrice: estimated.averagePrice,
+            minAcceptablePrice,
+            protectedByLimitOrder: true,
+            orderType: 'FAK',
+            limitPrice,
           };
           break;
         }
@@ -2598,42 +2721,83 @@ export class EvalancheMCPServer {
             throw new Error('shares must be a positive number');
           }
 
-          // Get market tokenId (unauthenticated read is fine)
-          const lsMarket = await this.getPolymarket().getMarket(lsConditionId);
-          if (!lsMarket) throw new Error(`Market not found: ${lsConditionId}`);
-          const lsToken = lsMarket.tokens.find(
-            (t) => t.outcome.toUpperCase() === lsOutcome,
-          );
-          if (!lsToken) throw new Error(`Outcome ${lsOutcome} not found in market`);
-          const lsTokenId = lsToken.tokenId;
+          // Step 1: get market tokenId (unauthenticated — uses safeFetch)
+          let lsTokenId: string;
+          try {
+            const lsMarket = await this.getPolymarket().getMarket(lsConditionId);
+            if (!lsMarket) throw new Error(`Market not found: ${lsConditionId}`);
+            const lsToken = lsMarket.tokens.find(
+              (t) => t.outcome.toUpperCase() === lsOutcome,
+            );
+            if (!lsToken) throw new Error(`Outcome ${lsOutcome} not found in market. Available: ${lsMarket.tokens.map(t => t.outcome).join(', ')}`);
+            lsTokenId = lsToken.tokenId;
+          } catch (err: any) {
+            throw new Error(`pm_limit_sell [market lookup]: ${err?.message ?? String(err)}`);
+          }
 
-          // Use authenticated client
-          const authed = await this.getAuthedClobClient();
-          const { Side } = await import('@polymarket/clob-client');
-          const OrderType = (authed as any).constructor.OrderType ?? (authed as any).OrderType ?? { GTC: 'GTC', GTD: 'GTD', FOK: 'FOK', FAK: 'FAK' };
+          // Step 2: get authenticated CLOB client (signs EIP-712, calls /auth/derive-api-key)
+          let authed: any;
+          try {
+            authed = await this.getAuthedClobClient();
+            // Validate: does the client have the required methods?
+            if (!authed || typeof authed.createAndPostOrder !== 'function') {
+              throw new Error('getAuthedClobClient returned invalid client');
+            }
+            // Validate: does the client have credentials?
+            if (!authed.creds?.key || !authed.creds?.secret) {
+              throw new Error('Authenticated client has no API credentials — deriveApiKey likely failed silently');
+            }
+          } catch (err: any) {
+            const msg = err?.message ?? String(err);
+            throw new Error(
+              `pm_limit_sell [auth setup]: ${msg}. ` +
+              `Fix: ensure wallet has a Polymarket CLOB API key at https://clob.polymarket.com/keys`,
+            );
+          }
 
-          // Fetch tick size and neg_risk from the market
-          const marketInfo = await authed.getMarket(lsConditionId);
-          const tickSize = parseFloat(marketInfo?.minimum_tick_size ?? '0.01');
+          // Step 3: get market info for tick size and neg_risk
+          let marketInfo: any;
+          try {
+            marketInfo = await authed.getMarket(lsConditionId);
+            if (!marketInfo) throw new Error('getMarket returned null');
+          } catch (err: any) {
+            throw new Error(`pm_limit_sell [market info]: ${err?.message ?? String(err)}`);
+          }
+
+          // Resolve order parameters with defaults
+          const tsRaw = marketInfo?.minimum_tick_size ?? '0.01';
+          const tickSize = isNaN(parseFloat(tsRaw)) ? '0.01' : String(parseFloat(tsRaw));
           const negRisk = marketInfo?.neg_risk ?? false;
 
-          const orderRes = await authed.createAndPostOrder(
-            {
-              tokenID: lsTokenId,
-              price: lsPrice,
-              side: Side.SELL,
-              size: lsShares,
-              feeRateBps: 0,
-              nonce: 0,
-            },
-            {
-              tickSize: String(tickSize),
-              negRisk,
-            },
-            OrderType.GTC,
-            false, // deferExec
-            lsPostOnly, // postOnly
-          );
+          // Get Side enum — use SDK's Side enum directly
+          const { Side } = await import('@polymarket/clob-client');
+
+          // Step 4: place the GTC limit sell order.
+          // If postOnly=false, allow immediate matching while still respecting the limit price.
+          let orderRes: any;
+          try {
+            orderRes = await authed.createAndPostOrder(
+              {
+                tokenID: lsTokenId,
+                price: lsPrice,
+                side: Side.SELL,
+                size: lsShares,
+                feeRateBps: 0,
+                nonce: 0,
+              },
+              {
+                tickSize,
+                negRisk,
+              },
+              'GTC',      // pass as string — avoids SDK enum mismatch
+              lsPostOnly, // deferExec when postOnly=true; otherwise allow immediate matching
+              lsPostOnly, // postOnly
+            );
+          } catch (err: any) {
+            const msg = err?.message ?? String(err);
+            const detail = err?.response?._data ? ` (response: ${JSON.stringify(err.response._data)})` : '';
+            throw new Error(`pm_limit_sell [order placement]: ${msg}${detail}`);
+          }
 
           result = {
             orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
@@ -2645,6 +2809,9 @@ export class EvalancheMCPServer {
             totalProceeds: lsPrice * lsShares,
             postOnly: lsPostOnly,
             orderType: 'GTC',
+            deferExec: lsPostOnly,
+            // Debug: raw SDK response in case of partial failure
+            rawStatus: orderRes?.status,
           };
           break;
         }

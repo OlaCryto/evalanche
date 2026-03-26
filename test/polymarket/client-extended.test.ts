@@ -17,6 +17,32 @@ function makeMockedClient(clobStub: Record<string, unknown>, chainId: 137 | 4216
   return client;
 }
 
+async function callServerTool(
+  name: string,
+  args: Record<string, unknown> = {},
+  configure?: (server: any) => void | Promise<void>,
+): Promise<{ isError: boolean; text: string; server: any }> {
+  const { EvalancheMCPServer } = await import('../../src/mcp/server');
+  const wallet = Wallet.createRandom();
+  const config = { privateKey: wallet.privateKey, network: 'fuji' as const };
+  const server = new EvalancheMCPServer(config as any);
+  if (configure) await configure(server);
+
+  const resp = await server.handleRequest({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  });
+
+  const result = resp.result as any;
+  return {
+    isError: result?.isError === true,
+    text: result?.content?.[0]?.text ?? '',
+    server,
+  };
+}
+
 describe('PolymarketClient.estimateFillPrice', () => {
   it('returns weighted average price for a BUY using asks in order', async () => {
     const clobStub = {
@@ -129,29 +155,8 @@ describe('PolymarketClient.getOrderbook alias', () => {
 // Server-level integration smoke tests — no wallet/network needed.
 
 describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
-  async function callTool(name: string, args: Record<string, unknown> = {}): Promise<{ isError: boolean; text: string }> {
-    const { EvalancheMCPServer } = await import('../../src/mcp/server');
-    const wallet = Wallet.createRandom();
-    // Minimal stub config — server will not hit network
-    const config = { privateKey: wallet.privateKey, network: 'fuji' as const };
-    const server = new EvalancheMCPServer(config as any);
-
-    const resp = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'tools/call',
-      params: { name, arguments: args },
-    });
-
-    // isError is on resp.result directly (not inside content[0])
-    const result = resp.result as any;
-    const isError = result?.isError === true;
-    const text: string = result?.content?.[0]?.text ?? '';
-    return { isError, text };
-  }
-
   it('pm_approve attempts CLOB auth (no longer throws unimplemented)', async () => {
-    const { isError, text } = await callTool('pm_approve', { amount: '100' });
+    const { isError, text } = await callServerTool('pm_approve', { amount: '100' });
     // May succeed or fail at CLOB level, but must NOT say "not implemented"
     expect(text).not.toMatch(/not implemented/i);
     if (isError) {
@@ -164,16 +169,153 @@ describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
   });
 
   it('pm_buy attempts market lookup (no longer throws unimplemented)', async () => {
-    const { isError, text } = await callTool('pm_buy', { conditionId: '0x1', outcome: 'YES', amountUSDC: '10' });
+    const { isError, text } = await callServerTool('pm_buy', { conditionId: '0x1', outcome: 'YES', amountUSDC: '10' });
     // Will fail at market fetch or CLOB level, but NOT with "not implemented"
     expect(isError).toBe(true);
     expect(text).not.toMatch(/not implemented/i);
   });
 
   it('pm_redeem returns not yet implemented', async () => {
-    const { isError, text } = await callTool('pm_redeem', { conditionId: '0x1' });
+    const { isError, text } = await callServerTool('pm_redeem', { conditionId: '0x1' });
     expect(isError).toBe(true);
     expect(text).toMatch(/not yet implemented/i);
+  });
+});
+
+describe('MCP server Polymarket sell protections', () => {
+  it('buildAuthedClobClient uses a fresh nonce for fallback auth attempts', async () => {
+    vi.resetModules();
+    const deriveApiKey = vi.fn().mockRejectedValueOnce({
+      response: { status: 400 },
+      message: '400 duplicate nonce',
+    });
+    const createOrDeriveApiKey = vi.fn().mockResolvedValue({
+      key: 'k',
+      secret: 's',
+      passphrase: 'p',
+    });
+
+    vi.doMock('@polymarket/clob-client', () => ({
+      ClobClient: class MockClobClient {
+        creds: any;
+        constructor(_host: string, _chainId: number, _signer?: unknown, creds?: unknown) {
+          this.creds = creds;
+        }
+        deriveApiKey(nonce: number) {
+          return deriveApiKey(nonce);
+        }
+        createOrDeriveApiKey(nonce: number) {
+          return createOrDeriveApiKey(nonce);
+        }
+      },
+    }));
+
+    const { EvalancheMCPServer } = await import('../../src/mcp/server');
+    const wallet = Wallet.createRandom();
+    const server = new EvalancheMCPServer({ privateKey: wallet.privateKey, network: 'fuji' } as any);
+    await (server as any).buildAuthedClobClient({}, wallet.address);
+
+    expect(deriveApiKey).toHaveBeenCalledTimes(1);
+    expect(createOrDeriveApiKey).toHaveBeenCalledTimes(1);
+    expect(createOrDeriveApiKey.mock.calls[0][0]).not.toBe(deriveApiKey.mock.calls[0][0]);
+
+    vi.doUnmock('@polymarket/clob-client');
+    vi.resetModules();
+  });
+
+  it('pm_sell rejects when visible liquidity would violate max slippage', async () => {
+    const getAuthedClobClient = vi.fn();
+    const { isError, text } = await callServerTool(
+      'pm_sell',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '4.2', maxSlippagePct: 1 },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [
+              { price: 0.7, size: 4, orderID: 'b1' },
+              { price: 0.6, size: 10, orderID: 'b2' },
+            ],
+            asks: [],
+          }),
+        });
+        (server as any).getAuthedClobClient = getAuthedClobClient;
+      },
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toMatch(/below the minimum acceptable/i);
+    expect(getAuthedClobClient).not.toHaveBeenCalled();
+  });
+
+  it('pm_sell uses a protected FAK sell order instead of a raw market sell', async () => {
+    const createOrder = vi.fn().mockResolvedValue({ signed: true });
+    const postOrder = vi.fn().mockResolvedValue({ orderID: 'order-1', status: 'matched' });
+    const getOrder = vi.fn().mockResolvedValue({ average_fill_price: 0.7, size: 10 });
+
+    const { isError, text } = await callServerTool(
+      'pm_sell',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '7', maxSlippagePct: 1 },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.7, size: 20, orderID: 'b1' }],
+            asks: [],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          createOrder,
+          postOrder,
+          getOrder,
+          getMarket: async () => ({ minimum_tick_size: '0.01', neg_risk: false }),
+        });
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.protectedByLimitOrder).toBe(true);
+    expect(parsed.orderType).toBe('FAK');
+    expect(parsed.limitPrice).toBeGreaterThanOrEqual(parsed.minAcceptablePrice);
+    expect(createOrder).toHaveBeenCalledTimes(1);
+    expect(postOrder).toHaveBeenCalledWith({ signed: true }, 'FAK', false);
+  });
+
+  it('pm_limit_sell honors postOnly=false by allowing immediate matching', async () => {
+    const createAndPostOrder = vi.fn().mockResolvedValue({ orderID: 'order-2', status: 'matched' });
+
+    const { isError, text } = await callServerTool(
+      'pm_limit_sell',
+      { conditionId: '0x1', outcome: 'YES', price: 0.55, shares: '10', postOnly: false },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          creds: { key: 'k', secret: 's' },
+          createAndPostOrder,
+          getMarket: async () => ({ minimum_tick_size: '0.01', neg_risk: false }),
+        });
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.deferExec).toBe(false);
+    expect(parsed.postOnly).toBe(false);
+    expect(createAndPostOrder.mock.calls[0][2]).toBe('GTC');
+    expect(createAndPostOrder.mock.calls[0][3]).toBe(false);
+    expect(createAndPostOrder.mock.calls[0][4]).toBe(false);
   });
 });
 
