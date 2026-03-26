@@ -1193,6 +1193,55 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'pm_balances',
+    description: 'Get Polymarket collateral and venue balance state for the authenticated wallet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tokenId: { type: 'string', description: 'Optional outcome token ID to include conditional balance/allowance checks' },
+      },
+    },
+  },
+  {
+    name: 'pm_order',
+    description: 'Get venue truth for a Polymarket order by order ID, including a reconciliation snapshot.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Polymarket order ID' },
+        tokenId: { type: 'string', description: 'Optional outcome token ID for tighter reconciliation' },
+        conditionId: { type: 'string', description: 'Optional market condition ID used with outcome to resolve tokenId' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
+        walletAddress: { type: 'string', description: 'Optional wallet override for position reconciliation' },
+      },
+      required: ['orderId'],
+    },
+  },
+  {
+    name: 'pm_open_orders',
+    description: 'List Polymarket open orders, optionally filtered to a market outcome token.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tokenId: { type: 'string', description: 'Outcome token ID to filter by' },
+        conditionId: { type: 'string', description: 'Market condition ID (resolved with outcome into a token ID)' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
+      },
+    },
+  },
+  {
+    name: 'pm_trades',
+    description: 'List Polymarket venue trades, optionally filtered to a market outcome token.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tokenId: { type: 'string', description: 'Outcome token ID to filter by' },
+        conditionId: { type: 'string', description: 'Market condition ID (resolved with outcome into a token ID)' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
+      },
+    },
+  },
+  {
     name: 'pm_approve',
     description: 'Approve USDC spending for Polymarket exchange on Polygon',
     inputSchema: {
@@ -1201,6 +1250,26 @@ const TOOLS: MCPTool[] = [
         amount: { type: 'string', description: 'USDC amount to approve (e.g. "100")' },
       },
       required: ['amount'],
+    },
+  },
+  {
+    name: 'pm_preflight',
+    description: 'Run deterministic Polymarket execution preflight checks before attempting a write.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['buy', 'sell', 'limit_sell'], description: 'Execution path to preflight' },
+        conditionId: { type: 'string', description: 'Market condition ID' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome to trade' },
+        amountUSDC: { type: 'string', description: 'USDC amount for buy or immediate sell flows' },
+        orderType: { type: 'string', enum: ['market', 'limit'], description: 'Buy order type (default: market)' },
+        limitPrice: { type: 'number', description: 'Limit price for buy preflight' },
+        price: { type: 'number', description: 'Limit price for limit sell preflight' },
+        shares: { type: 'string', description: 'Outcome shares for limit sell preflight' },
+        maxSlippagePct: { type: 'number', description: 'Maximum slippage percent for immediate sell preflight' },
+        postOnly: { type: 'boolean', description: 'Whether limit sell should only rest on the book (default: true)' },
+      },
+      required: ['action', 'conditionId', 'outcome'],
     },
   },
   {
@@ -1246,6 +1315,20 @@ const TOOLS: MCPTool[] = [
         postOnly: { type: 'boolean', description: 'If true, order only posts to book and does not take liquidity (default: true)' },
       },
       required: ['conditionId', 'outcome', 'price', 'shares'],
+    },
+  },
+  {
+    name: 'pm_reconcile',
+    description: 'Reconcile Polymarket local assumptions against venue truth using orders, trades, balances, and positions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        walletAddress: { type: 'string', description: 'Optional wallet override for positions reconciliation' },
+        orderId: { type: 'string', description: 'Optional order ID to verify' },
+        conditionId: { type: 'string', description: 'Optional market condition ID' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
+        tokenId: { type: 'string', description: 'Optional outcome token ID' },
+      },
     },
   },
   {
@@ -1367,6 +1450,636 @@ export class EvalancheMCPServer {
     return Number((steps * tickSize).toFixed(precision));
   }
 
+  private normalizePolymarketOutcome(value: unknown, toolName: string): 'YES' | 'NO' {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${toolName} requires 'outcome' (YES or NO).`);
+    }
+    const normalized = value.trim().toUpperCase();
+    if (normalized !== 'YES' && normalized !== 'NO') {
+      throw new Error(`${toolName} requires outcome to be YES or NO.`);
+    }
+    return normalized;
+  }
+
+  private requirePolymarketString(args: Record<string, unknown>, key: string, toolName: string): string {
+    const value = args[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`${toolName} requires '${key}' to be a non-empty string.`);
+    }
+    return value.trim();
+  }
+
+  private parsePolymarketPositiveNumber(
+    value: unknown,
+    key: string,
+    toolName: string,
+    options?: { zeroToOneExclusive?: boolean },
+  ): number {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`${toolName} requires '${key}' to be a positive number.`);
+    }
+    if (options?.zeroToOneExclusive && (parsed <= 0 || parsed >= 1)) {
+      throw new Error(`${toolName} requires '${key}' to be between 0 and 1 (exclusive).`);
+    }
+    return parsed;
+  }
+
+  private parsePolymarketStatus(err: unknown): number | undefined {
+    if (typeof err === 'object' && err !== null) {
+      const anyErr = err as Record<string, any>;
+      const responseStatus = anyErr.response?.status ?? anyErr.status;
+      if (typeof responseStatus === 'number') return responseStatus;
+    }
+
+    const message = err instanceof Error ? err.message : String(err);
+    const match = message.match(/\bstatus\s+(\d{3})\b/i) ?? message.match(/\breturned\s+(\d{3})\b/i);
+    if (match) return Number(match[1]);
+    return undefined;
+  }
+
+  private describePolymarketError(
+    err: unknown,
+    notFoundCode: 'market_not_found' | 'orderbook_unavailable',
+  ): { code: string; status?: number; message: string } {
+    const status = this.parsePolymarketStatus(err);
+    const message = err instanceof Error ? err.message : String(err);
+    if (status === 403) return { code: 'forbidden', status, message };
+    if (status === 404) return { code: notFoundCode, status, message };
+    return { code: 'upstream_error', status, message };
+  }
+
+  private normalizePolymarketMarketRecord(record: Record<string, unknown>, fallbackConditionId?: string): {
+    conditionId: string;
+    question: string;
+    description?: string;
+    startDate?: string;
+    endDate?: string;
+    tokens: Array<{ tokenId: string; conditionId: string; outcome: string; price?: number; volume?: number }>;
+  } {
+    const conditionId = String(record.condition_id ?? record.conditionId ?? fallbackConditionId ?? '');
+    const tokensRaw = Array.isArray(record.tokens) ? record.tokens : [];
+    const tokens = tokensRaw.map((token) => {
+      const item = (token ?? {}) as Record<string, unknown>;
+      const price = item.price;
+      const volume = item.volume;
+      return {
+        tokenId: String(item.token_id ?? item.tokenId ?? ''),
+        conditionId,
+        outcome: String(item.outcome ?? ''),
+        price: typeof price === 'number' ? price : Number.isFinite(Number(price)) ? Number(price) : undefined,
+        volume: typeof volume === 'number' ? volume : Number.isFinite(Number(volume)) ? Number(volume) : undefined,
+      };
+    });
+
+    return {
+      conditionId,
+      question: String(record.question ?? ''),
+      description: typeof record.description === 'string' ? record.description : undefined,
+      startDate:
+        typeof record.start_date_iso === 'string'
+          ? record.start_date_iso
+          : typeof record.startDate === 'string'
+            ? record.startDate
+            : undefined,
+      endDate:
+        typeof record.end_date_iso === 'string'
+          ? record.end_date_iso
+          : typeof record.endDate === 'string'
+            ? record.endDate
+            : undefined,
+      tokens,
+    };
+  }
+
+  private summarizePolymarketOrderBook(orderBook: { bids: Array<{ price: number; size: number }>; asks: Array<{ price: number; size: number }> }) {
+    const bidDepth = orderBook.bids.reduce((total, bid) => total + bid.size, 0);
+    const askDepth = orderBook.asks.reduce((total, ask) => total + ask.size, 0);
+    const bestBid = orderBook.bids[0]?.price ?? 0;
+    const bestAsk = orderBook.asks[0]?.price ?? 0;
+    return {
+      bestBid,
+      bestAsk,
+      bidDepth,
+      askDepth,
+      spread: bestBid > 0 && bestAsk > 0 ? Number((bestAsk - bestBid).toFixed(6)) : null,
+    };
+  }
+
+  private async fetchPolymarketPositions(walletAddress: string): Promise<any[]> {
+    const posUrl = `https://data-api.polymarket.com/positions?user=${walletAddress}`;
+    const posResp = await safeFetch(posUrl, { timeoutMs: 12_000, maxBytes: 2_000_000 });
+    if (!posResp.ok) throw new Error(`Polymarket data-api returned ${posResp.status}`);
+    const positions = await posResp.json();
+    return Array.isArray(positions) ? positions : [];
+  }
+
+  private findRelevantPolymarketPosition(positions: any[], tokenId?: string) {
+    if (!tokenId) return null;
+    return positions.find((position) => {
+      const record = (position ?? {}) as Record<string, unknown>;
+      return String(record.asset ?? record.tokenId ?? record.token_id ?? '') === tokenId;
+    }) ?? null;
+  }
+
+  private async inspectPolymarketMarket(conditionId: string): Promise<any> {
+    try {
+      const market = await this.getPolymarket().getMarket(conditionId);
+      if (market) {
+        return {
+          ok: true,
+          source: 'clob_public',
+          confidence: 'direct',
+          market,
+        };
+      }
+      return {
+        ok: false,
+        source: 'clob_public',
+        confidence: 'direct',
+        error: {
+          code: 'market_not_found',
+          status: 404,
+          message: `Polymarket market not found for conditionId=${conditionId}`,
+        },
+      };
+    } catch (publicErr) {
+      const publicError = this.describePolymarketError(publicErr, 'market_not_found');
+      try {
+        const authed = await this.getAuthedClobClient();
+        const rawMarket = await authed.getMarket(conditionId);
+        if (!rawMarket) {
+          return {
+            ok: false,
+            source: 'clob_public+auth',
+            confidence: 'direct',
+            error: publicError,
+          };
+        }
+        return {
+          ok: true,
+          source: 'clob_auth',
+          confidence: 'direct',
+          market: this.normalizePolymarketMarketRecord(rawMarket, conditionId),
+          warnings: [publicError],
+        };
+      } catch (authErr) {
+        return {
+          ok: false,
+          source: 'clob_public+auth',
+          confidence: 'weak',
+          error: publicError,
+          warnings: [this.describePolymarketError(authErr, 'market_not_found')],
+        };
+      }
+    }
+  }
+
+  private async inspectPolymarketOrderBook(tokenId: string): Promise<any> {
+    try {
+      const orderBook = await this.getPolymarket().getOrderBook(tokenId);
+      return {
+        ok: true,
+        source: 'clob_public',
+        confidence: 'direct',
+        orderBook,
+        summary: this.summarizePolymarketOrderBook(orderBook),
+      };
+    } catch (publicErr) {
+      const publicError = this.describePolymarketError(publicErr, 'orderbook_unavailable');
+      try {
+        const authed = await this.getAuthedClobClient();
+        const rawBook = await authed.getOrderBook(tokenId);
+        const orderBook = {
+          bids: Array.isArray(rawBook?.bids)
+            ? rawBook.bids.map((bid: Record<string, unknown>) => ({
+              price: Number(bid.price ?? 0),
+              size: Number(bid.size ?? 0),
+              orderID: String(bid.order_id ?? bid.orderID ?? ''),
+            }))
+            : [],
+          asks: Array.isArray(rawBook?.asks)
+            ? rawBook.asks.map((ask: Record<string, unknown>) => ({
+              price: Number(ask.price ?? 0),
+              size: Number(ask.size ?? 0),
+              orderID: String(ask.order_id ?? ask.orderID ?? ''),
+            }))
+            : [],
+        };
+        return {
+          ok: true,
+          source: 'clob_auth',
+          confidence: 'direct',
+          orderBook,
+          summary: this.summarizePolymarketOrderBook(orderBook),
+          warnings: [publicError],
+        };
+      } catch (authErr) {
+        return {
+          ok: false,
+          source: 'clob_public+auth',
+          confidence: 'weak',
+          error: publicError,
+          warnings: [this.describePolymarketError(authErr, 'orderbook_unavailable')],
+        };
+      }
+    }
+  }
+
+  private async resolvePolymarketMarketToken(conditionId: string, outcome: 'YES' | 'NO'): Promise<any> {
+    const marketInspection = await this.inspectPolymarketMarket(conditionId);
+    if (!marketInspection.ok) {
+      return {
+        ok: false,
+        marketInspection,
+        error: marketInspection.error,
+      };
+    }
+    const token = marketInspection.market.tokens.find(
+      (entry: { outcome: string }) => String(entry.outcome).toUpperCase() === outcome,
+    );
+    if (!token) {
+      return {
+        ok: false,
+        marketInspection,
+        error: {
+          code: 'outcome_not_found',
+          message: `Outcome ${outcome} not found in market ${conditionId}.`,
+        },
+      };
+    }
+    return {
+      ok: true,
+      marketInspection,
+      token,
+      tokenId: token.tokenId,
+    };
+  }
+
+  private async getPolymarketVenueBalances(tokenId?: string): Promise<any> {
+    try {
+      const authed = await this.getAuthedClobClient();
+      const collateral = typeof authed.getBalanceAllowance === 'function'
+        ? await authed.getBalanceAllowance({ asset_type: 'COLLATERAL' })
+        : null;
+      const conditional = tokenId && typeof authed.getBalanceAllowance === 'function'
+        ? await authed.getBalanceAllowance({ asset_type: 'CONDITIONAL', token_id: tokenId })
+        : null;
+      const venueBalances = typeof authed.getBalances === 'function'
+        ? await authed.getBalances()
+        : null;
+
+      return {
+        ok: true,
+        walletAddress: this.agent.address,
+        collateral: collateral
+          ? {
+            balance: Number(collateral.balance ?? 0),
+            allowance: Number(collateral.allowance ?? 0),
+          }
+          : null,
+        conditional: conditional
+          ? {
+            tokenId,
+            balance: Number(conditional.balance ?? 0),
+            allowance: Number(conditional.allowance ?? 0),
+          }
+          : null,
+        venueBalances,
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        walletAddress: this.agent.address,
+        error: this.describePolymarketError(err, 'orderbook_unavailable'),
+      };
+    }
+  }
+
+  private buildPolymarketPreflightVerdict(checks: Array<{ status: 'pass' | 'risky' | 'blocked' }>): 'ready' | 'risky' | 'blocked' {
+    if (checks.some((check) => check.status === 'blocked')) return 'blocked';
+    if (checks.some((check) => check.status === 'risky')) return 'risky';
+    return 'ready';
+  }
+
+  private async runPolymarketPreflight(input: {
+    action: 'buy' | 'sell' | 'limit_sell';
+    conditionId: string;
+    outcome: 'YES' | 'NO';
+    amountUSDC?: number;
+    orderType?: 'market' | 'limit';
+    limitPrice?: number;
+    price?: number;
+    shares?: number;
+    maxSlippagePct?: number;
+    postOnly?: boolean;
+  }): Promise<any> {
+    const tokenResolution = await this.resolvePolymarketMarketToken(input.conditionId, input.outcome);
+    const checks: Array<{ name: string; status: 'pass' | 'risky' | 'blocked'; message: string; details?: unknown }> = [];
+    const warnings: string[] = [];
+
+    if (!tokenResolution.ok) {
+      checks.push({
+        name: 'market',
+        status: 'blocked',
+        message: tokenResolution.error.message,
+        details: tokenResolution.error,
+      });
+      return {
+        action: input.action,
+        request: input,
+        verdict: 'blocked',
+        checks,
+        warnings,
+        market: tokenResolution.marketInspection ?? null,
+        token: null,
+      };
+    }
+
+    const tokenId = tokenResolution.tokenId as string;
+    const marketInspection = tokenResolution.marketInspection;
+    const orderBookInspection = await this.inspectPolymarketOrderBook(tokenId);
+    const balances = await this.getPolymarketVenueBalances(tokenId);
+    const positions = await this.fetchPolymarketPositions(this.agent.address).catch(() => []);
+    const relevantPosition = this.findRelevantPolymarketPosition(positions, tokenId);
+
+    checks.push({
+      name: 'market',
+      status: 'pass',
+      message: `Resolved ${input.outcome} token ${tokenId} for market ${input.conditionId}.`,
+    });
+
+    if (!orderBookInspection.ok) {
+      checks.push({
+        name: 'orderbook',
+        status: 'blocked',
+        message: orderBookInspection.error.message,
+        details: orderBookInspection.error,
+      });
+    } else {
+      checks.push({
+        name: 'orderbook',
+        status: 'pass',
+        message: `Order book available with best bid ${orderBookInspection.summary.bestBid} and best ask ${orderBookInspection.summary.bestAsk}.`,
+        details: orderBookInspection.summary,
+      });
+    }
+
+    if (!balances.ok) {
+      checks.push({
+        name: 'auth',
+        status: 'blocked',
+        message: balances.error.message,
+        details: balances.error,
+      });
+    }
+
+    const summary = orderBookInspection.ok ? orderBookInspection.summary : null;
+    const collateralBalance = balances.ok ? Number(balances.collateral?.balance ?? 0) : 0;
+    const collateralAllowance = balances.ok ? Number(balances.collateral?.allowance ?? 0) : 0;
+    const conditionalBalance = balances.ok ? Number(balances.conditional?.balance ?? 0) : 0;
+
+    const estimates: Record<string, unknown> = {};
+
+    if (input.action === 'buy') {
+      const amountUSDC = input.amountUSDC ?? 0;
+      const orderType = input.orderType ?? 'market';
+      checks.push({
+        name: 'collateral_balance',
+        status: collateralBalance >= amountUSDC ? 'pass' : 'blocked',
+        message:
+          collateralBalance >= amountUSDC
+            ? `Collateral balance ${collateralBalance} covers requested ${amountUSDC} USDC.`
+            : `Collateral balance ${collateralBalance} is below requested ${amountUSDC} USDC.`,
+      });
+      checks.push({
+        name: 'collateral_allowance',
+        status: collateralAllowance >= amountUSDC ? 'pass' : 'blocked',
+        message:
+          collateralAllowance >= amountUSDC
+            ? `Collateral allowance ${collateralAllowance} covers requested ${amountUSDC} USDC.`
+            : `Collateral allowance ${collateralAllowance} is below requested ${amountUSDC} USDC. Run pm_approve first.`,
+      });
+
+      if (orderType === 'limit') {
+        const limitPrice = input.limitPrice ?? 0;
+        const size = limitPrice > 0 ? amountUSDC / limitPrice : 0;
+        estimates.limitOrderShares = size;
+        checks.push({
+          name: 'limit_price',
+          status: limitPrice > 0 && limitPrice < 1 ? 'pass' : 'blocked',
+          message:
+            limitPrice > 0 && limitPrice < 1
+              ? `Limit price ${limitPrice} is valid.`
+              : `Limit price ${limitPrice} must be between 0 and 1.`,
+        });
+      } else if (summary) {
+        const bestAsk = Number(summary.bestAsk ?? 0);
+        checks.push({
+          name: 'best_ask',
+          status: bestAsk > 0 ? 'pass' : 'blocked',
+          message:
+            bestAsk > 0
+              ? `Best ask ${bestAsk} is available for market buy routing.`
+              : 'No ask liquidity is visible for a market buy.',
+        });
+        if (bestAsk > 0) estimates.estimatedShares = amountUSDC / bestAsk;
+      }
+    }
+
+    if (input.action === 'sell') {
+      const amountUSDC = input.amountUSDC ?? 0;
+      const bestBid = Number(summary?.bestBid ?? 0);
+      checks.push({
+        name: 'best_bid',
+        status: bestBid > 0 ? 'pass' : 'blocked',
+        message:
+          bestBid > 0
+            ? `Best bid ${bestBid} is available for immediate sell routing.`
+            : 'No bid liquidity is visible for this outcome.',
+      });
+
+      if (bestBid > 0 && orderBookInspection.ok) {
+        const desiredShares = amountUSDC / bestBid;
+        const fillEstimate = this.estimateSellFill(orderBookInspection.orderBook, desiredShares);
+        const maxSlippagePct = input.maxSlippagePct ?? 1;
+        const minAcceptablePrice = bestBid * (1 - maxSlippagePct / 100);
+        estimates.desiredShares = desiredShares;
+        estimates.fillEstimate = fillEstimate;
+        estimates.minAcceptablePrice = minAcceptablePrice;
+
+        checks.push({
+          name: 'conditional_balance',
+          status: conditionalBalance >= desiredShares ? 'pass' : 'blocked',
+          message:
+            conditionalBalance >= desiredShares
+              ? `Conditional balance ${conditionalBalance} covers desired sell size ${desiredShares}.`
+              : `Conditional balance ${conditionalBalance} is below desired sell size ${desiredShares}.`,
+        });
+        checks.push({
+          name: 'visible_liquidity',
+          status: fillEstimate.hasFullLiquidity ? 'pass' : 'blocked',
+          message:
+            fillEstimate.hasFullLiquidity
+              ? `Visible bids can absorb ${desiredShares} shares.`
+              : `Visible bids cannot fully absorb ${desiredShares} shares.`,
+          details: fillEstimate,
+        });
+        checks.push({
+          name: 'slippage',
+          status: fillEstimate.averagePrice >= minAcceptablePrice ? 'pass' : 'blocked',
+          message:
+            fillEstimate.averagePrice >= minAcceptablePrice
+              ? `Estimated average fill ${fillEstimate.averagePrice} stays above the minimum acceptable ${minAcceptablePrice}.`
+              : `Estimated average fill ${fillEstimate.averagePrice} falls below the minimum acceptable ${minAcceptablePrice}.`,
+          details: { averagePrice: fillEstimate.averagePrice, minAcceptablePrice },
+        });
+      }
+    }
+
+    if (input.action === 'limit_sell') {
+      const price = input.price ?? 0;
+      const shares = input.shares ?? 0;
+      const postOnly = input.postOnly ?? true;
+      const bestBid = Number(summary?.bestBid ?? 0);
+
+      checks.push({
+        name: 'conditional_balance',
+        status: conditionalBalance >= shares ? 'pass' : 'blocked',
+        message:
+          conditionalBalance >= shares
+            ? `Conditional balance ${conditionalBalance} covers ${shares} shares.`
+            : `Conditional balance ${conditionalBalance} is below ${shares} shares.`,
+      });
+      checks.push({
+        name: 'price',
+        status: price > 0 && price < 1 ? 'pass' : 'blocked',
+        message:
+          price > 0 && price < 1
+            ? `Limit price ${price} is valid.`
+            : `Limit price ${price} must be between 0 and 1.`,
+      });
+      if (postOnly && bestBid > 0 && price <= bestBid) {
+        checks.push({
+          name: 'post_only_cross',
+          status: 'blocked',
+          message: `postOnly=true would reject because limit price ${price} crosses or matches best bid ${bestBid}.`,
+        });
+      } else if (!postOnly && bestBid > 0 && price <= bestBid) {
+        checks.push({
+          name: 'crossing_limit',
+          status: 'risky',
+          message: `Limit sell price ${price} crosses visible bid ${bestBid} and may execute immediately.`,
+        });
+      }
+    }
+
+    const verdict = this.buildPolymarketPreflightVerdict(checks);
+    if (marketInspection?.warnings) {
+      warnings.push(...marketInspection.warnings.map((warning: { message: string }) => warning.message));
+    }
+    if (orderBookInspection?.warnings) {
+      warnings.push(...orderBookInspection.warnings.map((warning: { message: string }) => warning.message));
+    }
+
+    return {
+      action: input.action,
+      request: input,
+      verdict,
+      checks,
+      warnings,
+      market: marketInspection,
+      token: tokenResolution.token,
+      tokenId,
+      orderbook: orderBookInspection,
+      balances,
+      positions: {
+        walletAddress: this.agent.address,
+        count: positions.length,
+        relevantPosition,
+      },
+      estimates,
+    };
+  }
+
+  private async reconcilePolymarketVenue(input: {
+    walletAddress?: string;
+    orderId?: string;
+    conditionId?: string;
+    outcome?: 'YES' | 'NO';
+    tokenId?: string;
+  }): Promise<any> {
+    const walletAddress = input.walletAddress ?? this.agent.address;
+    let tokenId = input.tokenId;
+    let tokenResolution: any = null;
+    if (!tokenId && input.conditionId && input.outcome) {
+      tokenResolution = await this.resolvePolymarketMarketToken(input.conditionId, input.outcome);
+      if (tokenResolution.ok) tokenId = tokenResolution.tokenId;
+    }
+
+    const authed = await this.getAuthedClobClient();
+    const positions = await this.fetchPolymarketPositions(walletAddress).catch(() => []);
+    const balances = await this.getPolymarketVenueBalances(tokenId);
+    const openOrders = typeof authed.getOpenOrders === 'function'
+      ? await authed.getOpenOrders(tokenId)
+      : [];
+    const trades = typeof authed.getTrades === 'function'
+      ? await authed.getTrades(tokenId)
+      : [];
+    const order = input.orderId && typeof authed.getOrder === 'function'
+      ? await authed.getOrder(input.orderId)
+      : null;
+
+    const openOrderMatch = input.orderId
+      ? (Array.isArray(openOrders)
+        ? openOrders.find((entry: Record<string, unknown>) => String(entry.orderID ?? entry.id ?? '') === input.orderId)
+        : null)
+      : null;
+    const relevantPosition = this.findRelevantPolymarketPosition(positions, tokenId);
+
+    const orderStatus = order
+      ? String((order as Record<string, unknown>).status ?? 'unknown')
+      : openOrderMatch
+        ? 'OPEN'
+        : input.orderId
+          ? 'NOT_FOUND'
+          : null;
+
+    return {
+      sourceOfTruth: 'venue',
+      walletAddress,
+      tokenId: tokenId ?? null,
+      tokenResolution,
+      order: order
+        ? {
+          orderId: String((order as Record<string, unknown>).orderID ?? (order as Record<string, unknown>).id ?? input.orderId ?? ''),
+          status: orderStatus,
+          averageFillPrice: Number((order as Record<string, unknown>).average_fill_price ?? (order as Record<string, unknown>).averageFillPrice ?? 0),
+          size: Number((order as Record<string, unknown>).size ?? 0),
+          raw: order,
+        }
+        : null,
+      openOrders: Array.isArray(openOrders) ? openOrders : [],
+      trades: Array.isArray(trades) ? trades : [],
+      balances,
+      positions: {
+        walletAddress,
+        count: positions.length,
+        relevantPosition,
+        all: positions,
+      },
+      reconciliation: {
+        orderId: input.orderId ?? null,
+        orderState: orderStatus,
+        isOpen: Boolean(openOrderMatch),
+        recentTradeCount: Array.isArray(trades) ? trades.length : 0,
+        positionSize: relevantPosition
+          ? Number((relevantPosition as Record<string, unknown>).size ?? (relevantPosition as Record<string, unknown>).balance ?? 0)
+          : 0,
+      },
+    };
+  }
+
   /**
    * Build an authenticated Polymarket CLOB client.
    * Handles the case where the wallet already has an API key — in that case
@@ -1482,7 +2195,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '1.7.5',
+              version: '1.7.8',
             },
           });
 
@@ -2506,22 +3219,100 @@ export class EvalancheMCPServer {
           );
           break;
 
-        case 'pm_market':
-          result = await this.getPolymarket().getMarket(args.conditionId as string);
-          break;
-
-        case 'pm_positions': {
-          const wallet = (args.walletAddress as string) || this.agent.address;
-          const posUrl = `https://data-api.polymarket.com/positions?user=${wallet}`;
-          const posResp = await safeFetch(posUrl, { timeoutMs: 12_000, maxBytes: 2_000_000 });
-          if (!posResp.ok) throw new Error(`Polymarket data-api returned ${posResp.status}`);
-          result = await posResp.json();
+        case 'pm_market': {
+          const conditionId = this.requirePolymarketString(args, 'conditionId', 'pm_market');
+          result = await this.inspectPolymarketMarket(conditionId);
           break;
         }
 
-        case 'pm_orderbook':
-          result = await this.getPolymarket().getOrderBook(args.tokenId as string);
+        case 'pm_positions': {
+          const wallet = (args.walletAddress as string) || this.agent.address;
+          const positions = await this.fetchPolymarketPositions(wallet);
+          result = { walletAddress: wallet, count: positions.length, positions };
           break;
+        }
+
+        case 'pm_orderbook': {
+          const tokenId = this.requirePolymarketString(args, 'tokenId', 'pm_orderbook');
+          result = await this.inspectPolymarketOrderBook(tokenId);
+          break;
+        }
+
+        case 'pm_balances': {
+          const tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          result = await this.getPolymarketVenueBalances(tokenId);
+          break;
+        }
+
+        case 'pm_order': {
+          const orderId = this.requirePolymarketString(args, 'orderId', 'pm_order');
+          const tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          const walletAddress = typeof args.walletAddress === 'string' && args.walletAddress.trim().length > 0
+            ? args.walletAddress.trim()
+            : undefined;
+          const conditionId = typeof args.conditionId === 'string' && args.conditionId.trim().length > 0
+            ? args.conditionId.trim()
+            : undefined;
+          const outcome = typeof args.outcome === 'string'
+            ? this.normalizePolymarketOutcome(args.outcome, 'pm_order')
+            : undefined;
+          result = await this.reconcilePolymarketVenue({ orderId, tokenId, walletAddress, conditionId, outcome });
+          break;
+        }
+
+        case 'pm_open_orders': {
+          let tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          if (!tokenId && typeof args.conditionId === 'string' && typeof args.outcome === 'string') {
+            const resolution = await this.resolvePolymarketMarketToken(
+              args.conditionId.trim(),
+              this.normalizePolymarketOutcome(args.outcome, 'pm_open_orders'),
+            );
+            if (!resolution.ok) throw new Error(resolution.error.message);
+            tokenId = resolution.tokenId;
+          }
+          const authed = await this.getAuthedClobClient();
+          const openOrders = typeof authed.getOpenOrders === 'function'
+            ? await authed.getOpenOrders(tokenId)
+            : [];
+          result = {
+            walletAddress: this.agent.address,
+            tokenId: tokenId ?? null,
+            count: Array.isArray(openOrders) ? openOrders.length : 0,
+            orders: Array.isArray(openOrders) ? openOrders : [],
+          };
+          break;
+        }
+
+        case 'pm_trades': {
+          let tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          if (!tokenId && typeof args.conditionId === 'string' && typeof args.outcome === 'string') {
+            const resolution = await this.resolvePolymarketMarketToken(
+              args.conditionId.trim(),
+              this.normalizePolymarketOutcome(args.outcome, 'pm_trades'),
+            );
+            if (!resolution.ok) throw new Error(resolution.error.message);
+            tokenId = resolution.tokenId;
+          }
+          const authed = await this.getAuthedClobClient();
+          const trades = typeof authed.getTrades === 'function'
+            ? await authed.getTrades(tokenId)
+            : [];
+          result = {
+            walletAddress: this.agent.address,
+            tokenId: tokenId ?? null,
+            count: Array.isArray(trades) ? trades.length : 0,
+            trades: Array.isArray(trades) ? trades : [],
+          };
+          break;
+        }
 
         case 'pm_approve': {
           const authedApprove = await this.getAuthedClobClient();
@@ -2530,39 +3321,59 @@ export class EvalancheMCPServer {
           break;
         }
 
-        case 'pm_buy': {
-          const conditionId = args.conditionId as string;
-          const outcomeRaw = args.outcome as string | undefined;
-          if (!outcomeRaw) {
-            throw new Error(
-              `pm_positions does not require an outcome argument. ` +
-              `Usage: pm_positions { chainId?: number }. ` +
-              `To get token IDs for trading, use pm_market { conditionId } instead.`,
-            );
+        case 'pm_preflight': {
+          const action = this.requirePolymarketString(args, 'action', 'pm_preflight') as 'buy' | 'sell' | 'limit_sell';
+          if (!['buy', 'sell', 'limit_sell'].includes(action)) {
+            throw new Error(`pm_preflight action must be one of: buy, sell, limit_sell.`);
           }
-          const outcome = outcomeRaw.toUpperCase();
-          const amountUSDC = parseFloat(args.amountUSDC as string);
-          const orderType = (args.orderType as string) || 'market';
-          const limitPrice = args.limitPrice as number | undefined;
+          const conditionId = this.requirePolymarketString(args, 'conditionId', 'pm_preflight');
+          const outcome = this.normalizePolymarketOutcome(args.outcome, 'pm_preflight');
+          const request: any = { action, conditionId, outcome };
+          if (args.amountUSDC !== undefined) request.amountUSDC = this.parsePolymarketPositiveNumber(args.amountUSDC, 'amountUSDC', 'pm_preflight');
+          if (args.orderType !== undefined) request.orderType = this.requirePolymarketString(args, 'orderType', 'pm_preflight');
+          if (args.limitPrice !== undefined) request.limitPrice = this.parsePolymarketPositiveNumber(args.limitPrice, 'limitPrice', 'pm_preflight', { zeroToOneExclusive: true });
+          if (args.price !== undefined) request.price = this.parsePolymarketPositiveNumber(args.price, 'price', 'pm_preflight', { zeroToOneExclusive: true });
+          if (args.shares !== undefined) request.shares = this.parsePolymarketPositiveNumber(args.shares, 'shares', 'pm_preflight');
+          if (args.maxSlippagePct !== undefined) request.maxSlippagePct = this.parsePolymarketPositiveNumber(args.maxSlippagePct, 'maxSlippagePct', 'pm_preflight');
+          if (args.postOnly !== undefined) request.postOnly = Boolean(args.postOnly);
+          result = await this.runPolymarketPreflight(request);
+          break;
+        }
 
-          // Get market to find tokenId for the chosen outcome
-          const market = await this.getPolymarket().getMarket(conditionId);
-          if (!market) throw new Error(`Market not found: ${conditionId}`);
-          const token = market.tokens.find(
-            (t) => t.outcome.toUpperCase() === outcome,
-          );
-          if (!token) throw new Error(`Outcome ${outcome} not found in market`);
-          const tokenId = token.tokenId;
+        case 'pm_buy': {
+          const conditionId = this.requirePolymarketString(args, 'conditionId', 'pm_buy');
+          const outcome = this.normalizePolymarketOutcome(args.outcome, 'pm_buy');
+          const amountUSDC = this.parsePolymarketPositiveNumber(args.amountUSDC, 'amountUSDC', 'pm_buy');
+          const orderType = ((args.orderType as string | undefined) ?? 'market').toLowerCase() as 'market' | 'limit';
+          if (orderType !== 'market' && orderType !== 'limit') {
+            throw new Error(`pm_buy requires orderType to be 'market' or 'limit'.`);
+          }
+          const limitPrice = args.limitPrice !== undefined
+            ? this.parsePolymarketPositiveNumber(args.limitPrice, 'limitPrice', 'pm_buy', { zeroToOneExclusive: true })
+            : undefined;
+          const preflight = await this.runPolymarketPreflight({
+            action: 'buy',
+            conditionId,
+            outcome,
+            amountUSDC,
+            orderType,
+            limitPrice,
+          });
+          if (preflight.verdict === 'blocked') {
+            const reasons = preflight.checks
+              .filter((check: { status: string }) => check.status === 'blocked')
+              .map((check: { message: string }) => check.message)
+              .join(' ');
+            throw new Error(`pm_buy preflight failed: ${reasons}`);
+          }
+          const tokenId = preflight.tokenId as string;
 
           const authedBuy = await this.getAuthedClobClient();
 
           let orderResult: any;
-          let orderSuccess = false;
           try {
             if (orderType === 'limit') {
-              if (!limitPrice || limitPrice <= 0 || limitPrice >= 1) {
-                throw new Error('limitPrice must be between 0 and 1 (exclusive) for limit orders');
-              }
+              if (!limitPrice) throw new Error('pm_buy limit orders require limitPrice.');
               const size = amountUSDC / limitPrice;
 
               // Fetch market info for tick size and neg risk
@@ -2594,7 +3405,7 @@ export class EvalancheMCPServer {
             }
 
             // Surface CLOB rejections clearly
-            orderSuccess = orderResult?.success !== false && orderResult?.status !== 400 && orderResult?.error !== true;
+            const orderSuccess = orderResult?.success !== false && orderResult?.status !== 400 && orderResult?.error !== true;
             if (!orderSuccess) {
               const errorMsg =
                 orderResult?.error?.message ??
@@ -2615,8 +3426,29 @@ export class EvalancheMCPServer {
             throw new Error(`pm_buy failed: ${msg}${detail}`);
           }
 
+          const orderId = orderResult?.orderID ?? orderResult?.orderIds?.[0] ?? 'unknown';
+          const verification = await this.reconcilePolymarketVenue({
+            orderId,
+            tokenId,
+            conditionId,
+            outcome,
+          });
+
           result = {
-            orderID: orderResult?.orderID ?? orderResult?.orderIds?.[0] ?? 'unknown',
+            tool: 'pm_buy',
+            request: { conditionId, outcome, amountUSDC, orderType, limitPrice },
+            preflight,
+            submission: {
+              orderID: orderId,
+              status: orderResult?.status ?? 'SUBMITTED',
+              tokenId,
+              outcome,
+              amountUSDC,
+              raw: orderResult,
+            },
+            verification,
+            warnings: preflight.warnings ?? [],
+            orderID: orderId,
             status: orderResult?.status ?? 'SUBMITTED',
             tokenId,
             outcome,
@@ -2626,59 +3458,30 @@ export class EvalancheMCPServer {
         }
 
         case 'pm_sell': {
-          const sellConditionId = args.conditionId as string;
-          const sellOutcomeRaw = args.outcome as string | undefined;
-          if (!sellOutcomeRaw) {
-            throw new Error(
-              `pm_sell requires 'outcome' (YES or NO). ` +
-              `To sell a position, identify the outcome from pm_positions first. ` +
-              `Example: pm_sell { conditionId: '...', outcome: 'YES', amountUSDC: '10' }`,
-            );
-          }
-          const sellOutcome = sellOutcomeRaw.toUpperCase();
-          const sellAmountUSDC = parseFloat(args.amountUSDC as string);
+          const sellConditionId = this.requirePolymarketString(args, 'conditionId', 'pm_sell');
+          const sellOutcome = this.normalizePolymarketOutcome(args.outcome, 'pm_sell');
+          const sellAmountUSDC = this.parsePolymarketPositiveNumber(args.amountUSDC, 'amountUSDC', 'pm_sell');
           const sellMaxSlippagePct = (args.maxSlippagePct as number) ?? 1;
-
-          if (!['YES', 'NO'].includes(sellOutcome)) {
-            throw new Error('outcome must be YES or NO');
-          }
-          if (isNaN(sellAmountUSDC) || sellAmountUSDC <= 0) {
-            throw new Error('amountUSDC must be a positive number');
-          }
-
-          // Look up tokenId from market (can use unauthenticated endpoint)
-          const sellMarket = await this.getPolymarket().getMarket(sellConditionId);
-          if (!sellMarket) throw new Error(`Market not found: ${sellConditionId}`);
-          const sellToken = sellMarket.tokens.find(
-            (t) => t.outcome.toUpperCase() === sellOutcome,
-          );
-          if (!sellToken) throw new Error(`Outcome ${sellOutcome} not found in market`);
-          const sellTokenId = sellToken.tokenId;
-
-          // Get best bid to determine token size
-          const sellOrderBook = await this.getPolymarket().getOrderBook(sellTokenId);
-          const bestBid = sellOrderBook.bids?.[0]?.price;
-          if (!bestBid || bestBid <= 0) {
-            throw new Error(`No bids available for ${sellOutcome} outcome. Cannot place sell order.`);
+          const preflight = await this.runPolymarketPreflight({
+            action: 'sell',
+            conditionId: sellConditionId,
+            outcome: sellOutcome,
+            amountUSDC: sellAmountUSDC,
+            maxSlippagePct: sellMaxSlippagePct,
+          });
+          if (preflight.verdict === 'blocked') {
+            const reasons = preflight.checks
+              .filter((check: { status: string }) => check.status === 'blocked')
+              .map((check: { message: string }) => check.message)
+              .join(' ');
+            throw new Error(`pm_sell preflight failed: ${reasons}`);
           }
 
-          // Size = USDC target / best bid price
-          const size = sellAmountUSDC / bestBid;
-          const minAcceptablePrice = bestBid * (1 - sellMaxSlippagePct / 100);
-          const estimated = this.estimateSellFill(sellOrderBook, size);
-          if (!estimated.hasFullLiquidity) {
-            throw new Error(
-              `Not enough visible bid liquidity to sell ${size.toFixed(6)} shares without leaving remainder. ` +
-              `Use pm_limit_sell to post a resting order instead.`,
-            );
-          }
-          if (estimated.averagePrice < minAcceptablePrice) {
-            throw new Error(
-              `pm_sell would clear around $${estimated.averagePrice.toFixed(4)}, below the minimum acceptable ` +
-              `$${minAcceptablePrice.toFixed(4)} implied by maxSlippagePct=${sellMaxSlippagePct}. ` +
-              `Use pm_limit_sell to control execution price explicitly.`,
-            );
-          }
+          const sellTokenId = preflight.tokenId as string;
+          const bestBid = Number(preflight.orderbook?.summary?.bestBid ?? 0);
+          const size = Number(preflight.estimates?.desiredShares ?? 0);
+          const minAcceptablePrice = Number(preflight.estimates?.minAcceptablePrice ?? 0);
+          const estimated = preflight.estimates?.fillEstimate ?? { averagePrice: 0, filledSize: 0, hasFullLiquidity: false };
 
           // Use authenticated client (getAuthedClobClient) and submit a protected immediate sell.
           const authed = await this.getAuthedClobClient();
@@ -2748,8 +3551,37 @@ export class EvalancheMCPServer {
             );
           }
 
+          const orderId = orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown';
+          const verification = await this.reconcilePolymarketVenue({
+            orderId,
+            tokenId: sellTokenId,
+            conditionId: sellConditionId,
+            outcome: sellOutcome,
+          });
+
           result = {
-            orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
+            tool: 'pm_sell',
+            request: {
+              conditionId: sellConditionId,
+              outcome: sellOutcome,
+              amountUSDC: sellAmountUSDC,
+              maxSlippagePct: sellMaxSlippagePct,
+            },
+            preflight,
+            submission: {
+              orderID: orderId,
+              status: orderRes?.status ?? 'submitted',
+              tokenId: sellTokenId,
+              outcome: sellOutcome,
+              size: filledSize,
+              averageFillPrice: avgFillPrice,
+              totalUSDC: filledSize * avgFillPrice,
+              proceedsTargetUSDC: sellAmountUSDC,
+              raw: orderRes,
+            },
+            verification,
+            warnings: preflight.warnings ?? [],
+            orderID: orderId,
             status: orderRes?.status ?? 'submitted',
             tokenId: sellTokenId,
             outcome: sellOutcome,
@@ -2799,50 +3631,33 @@ export class EvalancheMCPServer {
         }
 
         case 'pm_limit_sell': {
-          const lsConditionId = args.conditionId as string;
-          const lsOutcomeRaw = args.outcome as string | undefined;
-          if (!lsOutcomeRaw) {
-            throw new Error(
-              `pm_limit_sell requires 'outcome' (YES or NO). ` +
-              `To find which outcome you hold, use pm_positions to check your ERC-1155 holdings. ` +
-              `Example: pm_limit_sell { conditionId: '...', outcome: 'YES', price: 0.08, shares: '10', postOnly: true }`,
-            );
-          }
-          const lsOutcome = lsOutcomeRaw.toUpperCase();
-          const lsPrice = parseFloat(String(args.price));
-          const lsShares = parseFloat(args.shares as string);
+          const lsConditionId = this.requirePolymarketString(args, 'conditionId', 'pm_limit_sell');
+          const lsOutcome = this.normalizePolymarketOutcome(args.outcome, 'pm_limit_sell');
+          const lsPrice = this.parsePolymarketPositiveNumber(args.price, 'price', 'pm_limit_sell', { zeroToOneExclusive: true });
+          const lsShares = this.parsePolymarketPositiveNumber(args.shares, 'shares', 'pm_limit_sell');
           const lsPostOnly = (args.postOnly as boolean) ?? true;
-
-          if (!['YES', 'NO'].includes(lsOutcome)) {
-            throw new Error('outcome must be YES or NO');
+          const preflight = await this.runPolymarketPreflight({
+            action: 'limit_sell',
+            conditionId: lsConditionId,
+            outcome: lsOutcome,
+            price: lsPrice,
+            shares: lsShares,
+            postOnly: lsPostOnly,
+          });
+          if (preflight.verdict === 'blocked') {
+            const reasons = preflight.checks
+              .filter((check: { status: string }) => check.status === 'blocked')
+              .map((check: { message: string }) => check.message)
+              .join(' ');
+            throw new Error(`pm_limit_sell preflight failed: ${reasons}`);
           }
-          if (isNaN(lsPrice) || lsPrice <= 0 || lsPrice >= 1) {
-            throw new Error('price must be between 0 and 1 (exclusive)');
-          }
-          if (isNaN(lsShares) || lsShares <= 0) {
-            throw new Error('shares must be a positive number');
-          }
-
-          // Step 1: get market tokenId (unauthenticated — uses safeFetch)
-          let lsTokenId: string;
-          try {
-            const lsMarket = await this.getPolymarket().getMarket(lsConditionId);
-            if (!lsMarket) throw new Error(`Market not found: ${lsConditionId}`);
-            const lsToken = lsMarket.tokens.find(
-              (t) => t.outcome.toUpperCase() === lsOutcome,
-            );
-            if (!lsToken) throw new Error(`Outcome ${lsOutcome} not found in market. Available: ${lsMarket.tokens.map(t => t.outcome).join(', ')}`);
-            lsTokenId = lsToken.tokenId;
-          } catch (err: any) {
-            throw new Error(`pm_limit_sell [market lookup]: ${err?.message ?? String(err)}`);
-          }
+          const lsTokenId = preflight.tokenId as string;
 
           // Step 2: get authenticated CLOB client (signs EIP-712, calls /auth/derive-api-key)
           let authed: any;
           try {
             authed = await this.getAuthedClobClient();
-            // Validate: does the client have the required methods?
-            if (!authed || typeof authed.createAndPostOrder !== 'function') {
+            if (!authed || typeof authed.createOrder !== 'function' || typeof authed.postOrder !== 'function') {
               throw new Error('getAuthedClobClient returned invalid client');
             }
             // Validate: does the client have credentials?
@@ -2935,8 +3750,38 @@ export class EvalancheMCPServer {
 
           const orderID = orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown';
           const orderStatus = orderRes?.status ?? 'POSTED';
+          const verification = await this.reconcilePolymarketVenue({
+            orderId: orderID,
+            tokenId: lsTokenId,
+            conditionId: lsConditionId,
+            outcome: lsOutcome,
+          });
 
           result = {
+            tool: 'pm_limit_sell',
+            request: {
+              conditionId: lsConditionId,
+              outcome: lsOutcome,
+              price: lsPrice,
+              shares: lsShares,
+              postOnly: lsPostOnly,
+            },
+            preflight,
+            submission: {
+              orderID,
+              status: orderStatus,
+              tokenId: lsTokenId,
+              outcome: lsOutcome,
+              price: lsPrice,
+              shares: lsShares,
+              totalProceeds: lsPrice * lsShares,
+              postOnly: lsPostOnly,
+              orderType: 'GTC',
+              deferExec: lsPostOnly,
+              raw: orderRes,
+            },
+            verification,
+            warnings: preflight.warnings ?? [],
             orderID,
             status: orderStatus,
             tokenId: lsTokenId,
@@ -2948,6 +3793,26 @@ export class EvalancheMCPServer {
             orderType: 'GTC',
             deferExec: lsPostOnly, // true = post to book only (no AMM hit)
           };
+          break;
+        }
+
+        case 'pm_reconcile': {
+          const walletAddress = typeof args.walletAddress === 'string' && args.walletAddress.trim().length > 0
+            ? args.walletAddress.trim()
+            : undefined;
+          const orderId = typeof args.orderId === 'string' && args.orderId.trim().length > 0
+            ? args.orderId.trim()
+            : undefined;
+          const conditionId = typeof args.conditionId === 'string' && args.conditionId.trim().length > 0
+            ? args.conditionId.trim()
+            : undefined;
+          const tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          const outcome = typeof args.outcome === 'string'
+            ? this.normalizePolymarketOutcome(args.outcome, 'pm_reconcile')
+            : undefined;
+          result = await this.reconcilePolymarketVenue({ walletAddress, orderId, conditionId, outcome, tokenId });
           break;
         }
 

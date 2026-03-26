@@ -838,7 +838,13 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.7 (current)
+### v1.7.8 (current)
+- **Polymarket reliability and reconciliation**
+- added deterministic `pm_preflight` checks for buy/sell/limit-sell flows, including market resolution, visible liquidity, allowance, and balance checks
+- added venue-first inspection/reconciliation tools: `pm_balances`, `pm_order`, `pm_open_orders`, `pm_trades`, and `pm_reconcile`
+- `pm_market`, `pm_orderbook`, `pm_positions`, `pm_buy`, `pm_sell`, and `pm_limit_sell` now return structured envelopes instead of ad hoc responses, which makes downstream agent execution easier to verify
+
+### v1.7.7
 - **Polymarket sell hardening**
 - `pm_sell` now uses a slippage-protected immediate sell path instead of an unbounded market sell
 - Polymarket CLOB auth fallback now uses fresh nonces per attempt, which makes API-key derive/create recovery more reliable

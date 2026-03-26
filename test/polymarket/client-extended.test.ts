@@ -252,7 +252,7 @@ describe('MCP server Polymarket sell protections', () => {
 
     expect(isError).toBe(true);
     expect(text).toMatch(/below the minimum acceptable/i);
-    expect(getAuthedClobClient).not.toHaveBeenCalled();
+    expect(getAuthedClobClient).toHaveBeenCalledTimes(1);
   });
 
   it('pm_sell uses a protected FAK sell order instead of a raw market sell', async () => {
@@ -275,11 +275,20 @@ describe('MCP server Polymarket sell protections', () => {
           }),
         });
         (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '100', allowance: '100' }
+              : { balance: '20', allowance: '20' }
+          ),
+          getBalances: async () => ({ collateral: '100' }),
+          getOpenOrders: async () => [],
+          getTrades: async () => [],
           createOrder,
           postOrder,
           getOrder,
           getMarket: async () => ({ minimum_tick_size: '0.01', neg_risk: false }),
         });
+        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '20' }];
       },
     );
 
@@ -293,7 +302,9 @@ describe('MCP server Polymarket sell protections', () => {
   });
 
   it('pm_limit_sell honors postOnly=false by allowing immediate matching', async () => {
-    const createAndPostOrder = vi.fn().mockResolvedValue({ orderID: 'order-2', status: 'matched' });
+    const createOrder = vi.fn().mockResolvedValue({ signed: true });
+    const postOrder = vi.fn().mockResolvedValue({ orderID: 'order-2', status: 'matched' });
+    const getOrder = vi.fn().mockResolvedValue({ orderID: 'order-2', status: 'matched', average_fill_price: 0.55, size: 10 });
 
     const { isError, text } = await callServerTool(
       'pm_limit_sell',
@@ -304,12 +315,27 @@ describe('MCP server Polymarket sell protections', () => {
             conditionId: '0x1',
             tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
           }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.6, size: 20, orderID: 'b1' }],
+            asks: [],
+          }),
         });
         (server as any).getAuthedClobClient = async () => ({
           creds: { key: 'k', secret: 's' },
-          createAndPostOrder,
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '100', allowance: '100' }
+              : { balance: '50', allowance: '50' }
+          ),
+          getBalances: async () => ({ collateral: '100' }),
+          getOpenOrders: async () => [],
+          getTrades: async () => [],
+          createOrder,
+          postOrder,
+          getOrder,
           getMarket: async () => ({ minimum_tick_size: '0.01', neg_risk: false }),
         });
+        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '25' }];
       },
     );
 
@@ -317,9 +343,10 @@ describe('MCP server Polymarket sell protections', () => {
     const parsed = JSON.parse(text);
     expect(parsed.deferExec).toBe(false);
     expect(parsed.postOnly).toBe(false);
-    expect(createAndPostOrder.mock.calls[0][2]).toBe('GTC');
-    expect(createAndPostOrder.mock.calls[0][3]).toBe(false);
-    expect(createAndPostOrder.mock.calls[0][4]).toBe(false);
+    expect(parsed.preflight.verdict).toBe('risky');
+    expect(parsed.submission.deferExec).toBe(false);
+    expect(createOrder).toHaveBeenCalledTimes(1);
+    expect(postOrder).toHaveBeenCalledWith({ signed: true }, 'GTC', false, false);
   });
 });
 
@@ -354,8 +381,8 @@ describe('MCP server pm_positions', () => {
     const result = resp.result as any;
     expect(result.isError).toBeUndefined();
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).toHaveLength(2);
-    expect(parsed[0].asset).toBe('tok1');
+    expect(parsed.count).toBe(2);
+    expect(parsed.positions[0].asset).toBe('tok1');
 
     // Verify safeFetch was called with the data-api URL containing the agent address
     expect(spy).toHaveBeenCalledWith(
@@ -391,6 +418,82 @@ describe('MCP server pm_positions', () => {
       expect.any(Object),
     );
     spy.mockRestore();
+  });
+});
+
+describe('MCP server Polymarket inspection and reconciliation', () => {
+  it('pm_market returns structured market_not_found errors instead of throwing', async () => {
+    const { isError, text } = await callServerTool('pm_market', { conditionId: '0x404' }, (server) => {
+      (server as any).getPolymarket = () => ({
+        getMarket: async () => null,
+      });
+    });
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error.code).toBe('market_not_found');
+  });
+
+  it('pm_preflight reports blocked allowance failures for buys', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_preflight',
+      { action: 'buy', conditionId: '0x1', outcome: 'YES', amountUSDC: '10', orderType: 'market' },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.49, size: 100, orderID: 'b1' }],
+            asks: [{ price: 0.51, size: 100, orderID: 'a1' }],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '100', allowance: '5' }
+              : { balance: '0', allowance: '0' }
+          ),
+          getBalances: async () => ({ collateral: '100' }),
+        });
+        (server as any).fetchPolymarketPositions = async () => [];
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.verdict).toBe('blocked');
+    expect(parsed.checks.some((check: { name: string; status: string }) => check.name === 'collateral_allowance' && check.status === 'blocked')).toBe(true);
+  });
+
+  it('pm_order returns venue-first reconciliation details', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_order',
+      { orderId: 'ord-1', tokenId: 'tok-1' },
+      (server) => {
+        (server as any).getAuthedClobClient = async () => ({
+          getOrder: async () => ({ orderID: 'ord-1', status: 'MATCHED', average_fill_price: 0.62, size: 12 }),
+          getOpenOrders: async () => [],
+          getTrades: async () => [{ id: 'trade-1', price: 0.62 }],
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '50', allowance: '50' }
+              : { balance: '12', allowance: '12' }
+          ),
+          getBalances: async () => ({ collateral: '50' }),
+        });
+        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '12' }];
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.sourceOfTruth).toBe('venue');
+    expect(parsed.order.orderId).toBe('ord-1');
+    expect(parsed.reconciliation.orderState).toBe('MATCHED');
+    expect(parsed.positions.relevantPosition.asset).toBe('tok-1');
   });
 });
 
