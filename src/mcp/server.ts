@@ -1314,19 +1314,24 @@ export class EvalancheMCPServer {
   // Use (Date.now() * 1M) as base to ensure nonces are always >> CLOB counter (~1.77T).
   // This gives ~1.77T * 1M = 1.77Q unique nonces per millisecond.
   // Also use _polymarketNonceSeq as a per-session sequence to handle sub-ms calls.
-  // L1 auth nonce for API key operations (deriveApiKey, createApiKey).
-  // Use a simple incrementing counter — Polymarket server accepts any positive integer.
-  private _l1AuthNonce = 0;
-  nextL1AuthNonce(): number {
-    return ++this._l1AuthNonce;
+  // Polymarket CLOB uses int64 for off-chain nonce validation.
+  // Nonces must be: 0 < nonce <= 9,223,372,036,854,775,807 (max int64).
+  // Use Date.now() * 1000 + sequence as nonce — ~1.77 * 10^15, safely within int64.
+  // Lazy-initialize the base on first use so it works without a constructor.
+  private _polymarketNonceBase: number | null = null;
+  private _polymarketNonceSeq = 0;
+
+  private get polymarketNonceBase(): number {
+    if (this._polymarketNonceBase === null) {
+      // Set the session base: timestamp * 1000 ensures each session starts
+      // with nonces >> any previous session's range, within int64 bounds.
+      this._polymarketNonceBase = Date.now() * 1000;
+    }
+    return this._polymarketNonceBase;
   }
 
-  // Order nonce for EIP-712 signed orders.
-  // Must be > CLOB's off-chain counter (which tracks all orders including failed ones).
-  // Using BigInt(Date.now() * 1M + seq) ensures nonces are always >> CLOB counter.
-  private _orderNonceSeq = 0;
-  private nextPolymarketNonce(): bigint {
-    return BigInt(Date.now()) * 1_000_000n + BigInt(++this._orderNonceSeq);
+  private nextPolymarketNonce(): number {
+    return this.polymarketNonceBase + ++this._polymarketNonceSeq;
   }
 
   private estimateSellFill(orderBook: { bids: Array<{ price: number; size: number }> }, size: number): {
@@ -1380,7 +1385,7 @@ export class EvalancheMCPServer {
     // Try deriveApiKey FIRST (GET — retrieves existing key).
     // createApiKey (POST) fails 400 if a key already exists.
     try {
-      creds = await (tempClient as any).deriveApiKey(this.nextL1AuthNonce());
+      creds = await (tempClient as any).deriveApiKey(this.nextPolymarketNonce());
       // Validate: the SDK returns {apiKey, secret, passphrase} but the API can
       // return 200 with an error body. Validate the creds structure.
       if (!creds?.key || !creds?.secret || !creds?.passphrase) {
@@ -1401,7 +1406,7 @@ export class EvalancheMCPServer {
       // 400 on derive, OR returned incomplete creds: try createOrDeriveApiKey
       if (deriveStatus === 400 || isIncomplete || deriveMsg.includes('400')) {
         try {
-          creds = await tempClient.createOrDeriveApiKey(this.nextL1AuthNonce());
+          creds = await tempClient.createOrDeriveApiKey(this.nextPolymarketNonce());
           // Validate same structure
           if (!creds?.key || !creds?.secret || !creds?.passphrase) {
             throw Object.assign(
@@ -2762,6 +2767,36 @@ export class EvalancheMCPServer {
           break;
         }
 
+
+        // Raw direct order submission bypassing SDK's nonce tracking
+        case 'pm_raw_order': {
+          const rawTokenId = args.tokenId as string;
+          const rawSide = (args.side as string).toUpperCase();
+          const rawPrice = parseFloat(String(args.price));
+          const rawSize = parseFloat(String(args.size));
+          const rawOrderType = (args.orderType as string ?? 'GTC').toUpperCase();
+          const rawDeferExec = args.deferExec as boolean ?? false;
+          const rawPostOnly = args.postOnly as boolean ?? false;
+          if (!rawTokenId || !['BUY', 'SELL'].includes(rawSide) || isNaN(rawPrice) || isNaN(rawSize)) {
+            throw new Error('pm_raw_order requires: tokenId, side (BUY/SELL), price (0-1), size (number)');
+          }
+          // Get fresh authed client
+          const rawAuth = await this.getAuthedClobClient();
+          const { Side } = await import('@polymarket/clob-client');
+          // Use a raw nonce that's guaranteed to be fresh: timestamp*10^12 + random
+          const rawNonce = BigInt(Date.now()) * 1000000000000n + BigInt(Math.floor(Math.random() * 999999));
+          const rawSignedOrder = await rawAuth.createOrder({
+            tokenID: rawTokenId,
+            price: rawPrice,
+            side: rawSide === 'BUY' ? Side.BUY : Side.SELL,
+            size: rawSize,
+            feeRateBps: 0,
+            nonce: rawNonce,
+          }, { tickSize: '0.01', negRisk: false });
+          const rawResult = await rawAuth.postOrder(rawSignedOrder, rawOrderType, rawDeferExec, rawPostOnly);
+          result = rawResult;
+          break;
+        }
 
         case 'pm_limit_sell': {
           const lsConditionId = args.conditionId as string;
