@@ -120,11 +120,13 @@ describe('PolymarketClient.getTokenPrice', () => {
 describe('PolymarketClient.searchMarkets', () => {
   it('limits results to the requested count', async () => {
     const client = makeClient();
-    client.getMarkets = async () => [
+    const mockMarkets = [
       { conditionId: '1', question: 'Alpha market', tokens: [] },
       { conditionId: '2', question: 'Alpha second market', tokens: [] },
       { conditionId: '3', question: 'Alpha third market', tokens: [] },
     ];
+    client.getLiveMarkets = async () => mockMarkets;
+    client.getMarkets = async () => mockMarkets;
 
     const results = await client.searchMarkets('alpha', 2);
     expect(results).toHaveLength(2);
@@ -132,9 +134,11 @@ describe('PolymarketClient.searchMarkets', () => {
 
   it('is case-insensitive', async () => {
     const client = makeClient();
-    client.getMarkets = async () => [
+    const mockMarkets = [
       { conditionId: '1', question: 'IRAN sanctions threshold', tokens: [] },
     ];
+    client.getLiveMarkets = async () => mockMarkets;
+    client.getMarkets = async () => mockMarkets;
 
     await expect(client.searchMarkets('iran', 10)).resolves.toHaveLength(1);
     await expect(client.searchMarkets('IRAN', 10)).resolves.toHaveLength(1);

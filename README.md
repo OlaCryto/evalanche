@@ -838,7 +838,13 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.6 (current)
+### v1.7.7 (current)
+- **Polymarket sell hardening**
+- `pm_sell` now uses a slippage-protected immediate sell path instead of an unbounded market sell
+- Polymarket CLOB auth fallback now uses fresh nonces per attempt, which makes API-key derive/create recovery more reliable
+- `pm_limit_sell` now honors `postOnly: false` instead of always forcing a resting order
+
+### v1.7.6
 - **Polymarket execution and docs pass**
 - Polymarket now prefers live CLOB market discovery with Gamma fallback for broader search coverage
 - Polymarket supports direct SDK sell orders plus MCP `pm_sell` market sells toward a target USDC proceeds amount
