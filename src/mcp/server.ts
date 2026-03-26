@@ -2523,7 +2523,15 @@ export class EvalancheMCPServer {
 
         case 'pm_buy': {
           const conditionId = args.conditionId as string;
-          const outcome = (args.outcome as string).toUpperCase();
+          const outcomeRaw = args.outcome as string | undefined;
+          if (!outcomeRaw) {
+            throw new Error(
+              `pm_positions does not require an outcome argument. ` +
+              `Usage: pm_positions { chainId?: number }. ` +
+              `To get token IDs for trading, use pm_market { conditionId } instead.`,
+            );
+          }
+          const outcome = outcomeRaw.toUpperCase();
           const amountUSDC = parseFloat(args.amountUSDC as string);
           const orderType = (args.orderType as string) || 'market';
           const limitPrice = args.limitPrice as number | undefined;
@@ -2558,7 +2566,7 @@ export class EvalancheMCPServer {
               side: Side.BUY,
               size,
               feeRateBps: 0,
-              nonce: 0,
+              nonce: this.nextPolymarketNonce(),
               tickSize: String(tickSize),
               negRisk,
             });
@@ -2570,7 +2578,7 @@ export class EvalancheMCPServer {
               side: Side.BUY,
               amount: amountUSDC,
               feeRateBps: 0,
-              nonce: 0,
+              nonce: this.nextPolymarketNonce(),
             });
           }
 
@@ -2586,7 +2594,15 @@ export class EvalancheMCPServer {
 
         case 'pm_sell': {
           const sellConditionId = args.conditionId as string;
-          const sellOutcome = (args.outcome as string).toUpperCase();
+          const sellOutcomeRaw = args.outcome as string | undefined;
+          if (!sellOutcomeRaw) {
+            throw new Error(
+              `pm_sell requires 'outcome' (YES or NO). ` +
+              `To sell a position, identify the outcome from pm_positions first. ` +
+              `Example: pm_sell { conditionId: '...', outcome: 'YES', amountUSDC: '10' }`,
+            );
+          }
+          const sellOutcome = sellOutcomeRaw.toUpperCase();
           const sellAmountUSDC = parseFloat(args.amountUSDC as string);
           const sellMaxSlippagePct = (args.maxSlippagePct as number) ?? 1;
 
@@ -2653,7 +2669,7 @@ export class EvalancheMCPServer {
               side: Side.SELL,
               size,
               feeRateBps: 0,
-              nonce: 0,
+              nonce: this.nextPolymarketNonce(),
             },
             {
               tickSize: String(tickSize),
@@ -2684,6 +2700,21 @@ export class EvalancheMCPServer {
             );
           }
 
+          // If postOrder returned an error, surface it clearly
+          if (orderRes?.success === false || orderRes?.status === 400) {
+            const errorMsg =
+              orderRes?.error?.message ??
+              orderRes?.message ??
+              orderRes?.reason ??
+              JSON.stringify(orderRes?.error ?? orderRes).slice(0, 300);
+            throw new Error(
+              `pm_sell CLOB rejection: ${errorMsg}. ` +
+              `This usually means the CLOB market is inactive or the order ` +
+              `violates market constraints (tick size, min size, etc). ` +
+              `Use pm_limit_sell to post a GTC order instead.`,
+            );
+          }
+
           result = {
             orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
             status: orderRes?.status ?? 'submitted',
@@ -2706,7 +2737,15 @@ export class EvalancheMCPServer {
 
         case 'pm_limit_sell': {
           const lsConditionId = args.conditionId as string;
-          const lsOutcome = (args.outcome as string).toUpperCase();
+          const lsOutcomeRaw = args.outcome as string | undefined;
+          if (!lsOutcomeRaw) {
+            throw new Error(
+              `pm_limit_sell requires 'outcome' (YES or NO). ` +
+              `To find which outcome you hold, use pm_positions to check your ERC-1155 holdings. ` +
+              `Example: pm_limit_sell { conditionId: '...', outcome: 'YES', price: 0.08, shares: '10', postOnly: true }`,
+            );
+          }
+          const lsOutcome = lsOutcomeRaw.toUpperCase();
           const lsPrice = parseFloat(String(args.price));
           const lsShares = parseFloat(args.shares as string);
           const lsPostOnly = (args.postOnly as boolean) ?? true;
@@ -2772,36 +2811,71 @@ export class EvalancheMCPServer {
           // Get Side enum — use SDK's Side enum directly
           const { Side } = await import('@polymarket/clob-client');
 
-          // Step 4: place the GTC limit sell order.
-          // If postOnly=false, allow immediate matching while still respecting the limit price.
-          let orderRes: any;
+          // Step 4: place the GTC limit sell order using two-step (createOrder + postOrder).
+          // This gives us better error control than createAndPostOrder.
+          // deferExec=true: do NOT attempt immediate matching against AMM/CLOB bids
+          // postOnly=true: reject if order would cross the spread (takes liquidity)
+          let signedOrder: any;
           try {
-            orderRes = await authed.createAndPostOrder(
+            signedOrder = await authed.createOrder(
               {
                 tokenID: lsTokenId,
                 price: lsPrice,
                 side: Side.SELL,
                 size: lsShares,
                 feeRateBps: 0,
-                nonce: 0,
+                nonce: this.nextPolymarketNonce(),
               },
               {
                 tickSize,
                 negRisk,
               },
-              'GTC',      // pass as string — avoids SDK enum mismatch
-              lsPostOnly, // deferExec when postOnly=true; otherwise allow immediate matching
-              lsPostOnly, // postOnly
             );
           } catch (err: any) {
             const msg = err?.message ?? String(err);
-            const detail = err?.response?._data ? ` (response: ${JSON.stringify(err.response._data)})` : '';
-            throw new Error(`pm_limit_sell [order placement]: ${msg}${detail}`);
+            const respData = err?.response?.data ?? err?.response?._data ?? err?.data;
+            const detail = respData ? ` [CLOB: ${JSON.stringify(respData).slice(0, 200)}]` : '';
+            throw new Error(`pm_limit_sell [createOrder]: ${msg}${detail}`);
           }
 
+          let orderRes: any;
+          try {
+            orderRes = await authed.postOrder(
+              signedOrder,
+              'GTC',
+              lsPostOnly, // deferExec: true = post to book only, no AMM match attempt
+              lsPostOnly, // postOnlyReject: true = reject if would cross spread
+            );
+          } catch (err: any) {
+            const msg = err?.message ?? String(err);
+            const respData = err?.response?.data ?? err?.response?._data ?? err?.data;
+            const detail = respData ? ` [CLOB: ${JSON.stringify(respData).slice(0, 200)}]` : '';
+            throw new Error(`pm_limit_sell [postOrder]: ${msg}${detail}`);
+          }
+
+          // If postOrder returned a failure indicator, surface it as an error
+          const orderSuccess = orderRes?.success !== false && orderRes?.status !== 400 && orderRes?.error !== true;
+          if (!orderSuccess) {
+            const errorMsg =
+              orderRes?.error?.message ??
+              orderRes?.message ??
+              orderRes?.reason ??
+              orderRes?.msg ??
+              JSON.stringify(orderRes).slice(0, 200);
+            throw new Error(
+              `pm_limit_sell CLOB rejection: ${errorMsg}. ` +
+              `conditionId=${lsConditionId}, tokenId=${lsTokenId.slice(0, 20)}..., ` +
+              `price=${lsPrice}, size=${lsShares}, tickSize=${tickSize}. ` +
+              `Tip: verify the market tick size (${tickSize}) divides evenly into your price (${lsPrice}).`,
+            );
+          }
+
+          const orderID = orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown';
+          const orderStatus = orderRes?.status ?? 'POSTED';
+
           result = {
-            orderID: orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown',
-            status: orderRes?.status ?? 'POSTED',
+            orderID,
+            status: orderStatus,
             tokenId: lsTokenId,
             outcome: lsOutcome,
             price: lsPrice,
@@ -2809,9 +2883,7 @@ export class EvalancheMCPServer {
             totalProceeds: lsPrice * lsShares,
             postOnly: lsPostOnly,
             orderType: 'GTC',
-            deferExec: lsPostOnly,
-            // Debug: raw SDK response in case of partial failure
-            rawStatus: orderRes?.status,
+            deferExec: lsPostOnly, // true = post to book only (no AMM hit)
           };
           break;
         }
