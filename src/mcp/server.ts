@@ -2548,43 +2548,67 @@ export class EvalancheMCPServer {
           const authedBuy = await this.getAuthedClobClient();
 
           let orderResult: any;
-          if (orderType === 'limit') {
-            if (!limitPrice || limitPrice <= 0 || limitPrice >= 1) {
-              throw new Error('limitPrice must be between 0 and 1 (exclusive) for limit orders');
+          let orderSuccess = false;
+          try {
+            if (orderType === 'limit') {
+              if (!limitPrice || limitPrice <= 0 || limitPrice >= 1) {
+                throw new Error('limitPrice must be between 0 and 1 (exclusive) for limit orders');
+              }
+              const size = amountUSDC / limitPrice;
+
+              // Fetch market info for tick size and neg risk
+              const marketInfo = await authedBuy.getMarket(conditionId);
+              const tickSize = parseFloat(marketInfo?.minimum_tick_size ?? '0.01');
+              const negRisk = marketInfo?.neg_risk ?? false;
+
+              const { Side } = await import('@polymarket/clob-client');
+              orderResult = await authedBuy.createAndPostOrder({
+                tokenID: tokenId,
+                price: limitPrice,
+                side: Side.BUY,
+                size,
+                feeRateBps: 0,
+                nonce: this.nextPolymarketNonce(),
+                tickSize: String(tickSize),
+                negRisk,
+              });
+            } else {
+              // Market order — use SDK native createAndPostMarketOrder
+              const { Side } = await import('@polymarket/clob-client');
+              orderResult = await authedBuy.createAndPostMarketOrder({
+                tokenID: tokenId,
+                side: Side.BUY,
+                amount: amountUSDC,
+                feeRateBps: 0,
+                nonce: this.nextPolymarketNonce(),
+              });
             }
-            const size = amountUSDC / limitPrice;
 
-            // Fetch market info for tick size and neg risk
-            const marketInfo = await authedBuy.getMarket(conditionId);
-            const tickSize = parseFloat(marketInfo?.minimum_tick_size ?? '0.01');
-            const negRisk = marketInfo?.neg_risk ?? false;
-
-            const { Side } = await import('@polymarket/clob-client');
-            orderResult = await authedBuy.createAndPostOrder({
-              tokenID: tokenId,
-              price: limitPrice,
-              side: Side.BUY,
-              size,
-              feeRateBps: 0,
-              nonce: this.nextPolymarketNonce(),
-              tickSize: String(tickSize),
-              negRisk,
-            });
-          } else {
-            // Market order
-            const { Side } = await import('@polymarket/clob-client');
-            orderResult = await authedBuy.createAndPostMarketOrder({
-              tokenID: tokenId,
-              side: Side.BUY,
-              amount: amountUSDC,
-              feeRateBps: 0,
-              nonce: this.nextPolymarketNonce(),
-            });
+            // Surface CLOB rejections clearly
+            orderSuccess = orderResult?.success !== false && orderResult?.status !== 400 && orderResult?.error !== true;
+            if (!orderSuccess) {
+              const errorMsg =
+                orderResult?.error?.message ??
+                orderResult?.message ??
+                orderResult?.reason ??
+                orderResult?.msg ??
+                JSON.stringify(orderResult).slice(0, 300);
+              throw new Error(
+                `pm_buy CLOB rejection: ${errorMsg}. ` +
+                `tokenId=${tokenId.slice(0, 20)}..., amountUSDC=${amountUSDC}. ` +
+                `Verify USDC allowance (pm_approve) and market status.`,
+              );
+            }
+          } catch (err: any) {
+            const msg = err?.message ?? String(err);
+            const respData = err?.response?.data ?? err?.response?._data ?? err?.data;
+            const detail = respData ? ` [CLOB: ${JSON.stringify(respData).slice(0, 200)}]` : '';
+            throw new Error(`pm_buy failed: ${msg}${detail}`);
           }
 
           result = {
             orderID: orderResult?.orderID ?? orderResult?.orderIds?.[0] ?? 'unknown',
-            status: orderResult?.status ?? 'submitted',
+            status: orderResult?.status ?? 'SUBMITTED',
             tokenId,
             outcome,
             amountUSDC,

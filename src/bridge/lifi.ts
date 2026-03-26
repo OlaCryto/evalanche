@@ -185,7 +185,7 @@ export class LiFiClient {
    */
   async getQuote(params: BridgeQuoteParams): Promise<BridgeQuote> {
     const decimals = await this.resolveFromDecimals(params);
-    const fromAmount = parseUnits(params.fromAmount, decimals).toString();
+    const fromAmount = parseUnits(String(params.fromAmount), decimals).toString();
     const routeOptions = this.resolveRouteOptions(params);
 
     const searchParams = new URLSearchParams({
@@ -235,7 +235,7 @@ export class LiFiClient {
    */
   async getRoutes(params: BridgeQuoteParams): Promise<BridgeQuote[]> {
     const decimals = await this.resolveFromDecimals(params);
-    const fromAmount = parseUnits(params.fromAmount, decimals).toString();
+    const fromAmount = parseUnits(String(params.fromAmount), decimals).toString();
     const routeOptions = this.resolveRouteOptions(params);
 
     const body = {
