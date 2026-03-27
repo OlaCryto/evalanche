@@ -7,7 +7,7 @@ export default defineConfig([
     dts: true,
     splitting: false,
     sourcemap: true,
-    clean: true,
+    clean: false,
     target: 'node18',
     // Keep Avalanche deps external — they're lazy-loaded at runtime
     external: ['@avalabs/core-wallets-sdk', '@avalabs/avalanchejs', '@dydxprotocol/v4-client-js'],
