@@ -838,7 +838,13 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.8 (current)
+### v1.7.9 (current)
+- **Polymarket buy unit normalization**
+- Polymarket collateral balances/allowances are now normalized from raw 6-decimal USDC units before preflight compares them to human `amountUSDC`
+- `pm_preflight` and `pm_buy` now correctly reject microUSDC-funded wallets before attempting a venue order instead of claiming the wallet is funded
+- `pm_balances` preserves raw collateral fields alongside normalized display values for debugging and operator verification
+
+### v1.7.8
 - **Polymarket reliability and reconciliation**
 - added deterministic `pm_preflight` checks for buy/sell/limit-sell flows, including market resolution, visible liquidity, allowance, and balance checks
 - added venue-first inspection/reconciliation tools: `pm_balances`, `pm_order`, `pm_open_orders`, `pm_trades`, and `pm_reconcile`

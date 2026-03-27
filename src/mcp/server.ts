@@ -1450,6 +1450,12 @@ export class EvalancheMCPServer {
     return Number((steps * tickSize).toFixed(precision));
   }
 
+  private normalizeUsdcDisplayAmount(raw: unknown): number {
+    const parsed = Number(raw ?? 0);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    return parsed / 1_000_000;
+  }
+
   private normalizePolymarketOutcome(value: unknown, toolName: string): 'YES' | 'NO' {
     if (typeof value !== 'string' || value.trim().length === 0) {
       throw new Error(`${toolName} requires 'outcome' (YES or NO).`);
@@ -1840,9 +1846,11 @@ export class EvalancheMCPServer {
         walletAddress: this.agent.address,
         collateral: collateral
           ? {
-            balance: Number(collateral.balance ?? 0),
+            balance: this.normalizeUsdcDisplayAmount(collateral.balance),
+            rawBalance: String(collateral.balance ?? '0'),
             // Prefer on-chain allowance; fall back to CLOB API record if on-chain is 0
-            allowance: onChainAllowance > 0 ? onChainAllowance : Number(collateral.allowance ?? 0),
+            allowance: onChainAllowance > 0 ? onChainAllowance : this.normalizeUsdcDisplayAmount(collateral.allowance),
+            rawAllowance: String(collateral.allowance ?? '0'),
           }
           : {
             balance: 0,
@@ -2285,7 +2293,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '1.7.8',
+              version: '1.7.9',
             },
           });
 

@@ -221,7 +221,8 @@ describe('MCP server Polymarket sell protections', () => {
 
     expect(deriveApiKey).toHaveBeenCalledTimes(1);
     expect(createOrDeriveApiKey).toHaveBeenCalledTimes(1);
-    expect(createOrDeriveApiKey.mock.calls[0][0]).not.toBe(deriveApiKey.mock.calls[0][0]);
+    expect(deriveApiKey.mock.calls[0][0]).toBeUndefined();
+    expect(createOrDeriveApiKey.mock.calls[0][0]).toBeUndefined();
 
     vi.doUnmock('@polymarket/clob-client');
     vi.resetModules();
@@ -277,7 +278,7 @@ describe('MCP server Polymarket sell protections', () => {
         (server as any).getAuthedClobClient = async () => ({
           getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
             asset_type === 'COLLATERAL'
-              ? { balance: '100', allowance: '100' }
+              ? { balance: '100000000', allowance: '100000000' }
               : { balance: '20', allowance: '20' }
           ),
           getBalances: async () => ({ collateral: '100' }),
@@ -324,7 +325,7 @@ describe('MCP server Polymarket sell protections', () => {
           creds: { key: 'k', secret: 's' },
           getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
             asset_type === 'COLLATERAL'
-              ? { balance: '100', allowance: '100' }
+              ? { balance: '100000000', allowance: '100000000' }
               : { balance: '50', allowance: '50' }
           ),
           getBalances: async () => ({ collateral: '100' }),
@@ -453,7 +454,7 @@ describe('MCP server Polymarket inspection and reconciliation', () => {
         (server as any).getAuthedClobClient = async () => ({
           getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
             asset_type === 'COLLATERAL'
-              ? { balance: '100', allowance: '5' }
+              ? { balance: '100000000', allowance: '5000000' }
               : { balance: '0', allowance: '0' }
           ),
           getBalances: async () => ({ collateral: '100' }),
@@ -466,6 +467,78 @@ describe('MCP server Polymarket inspection and reconciliation', () => {
     const parsed = JSON.parse(text);
     expect(parsed.verdict).toBe('blocked');
     expect(parsed.checks.some((check: { name: string; status: string }) => check.name === 'collateral_allowance' && check.status === 'blocked')).toBe(true);
+  });
+
+  it('pm_preflight normalizes raw microUSDC collateral balances before buy checks', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_preflight',
+      { action: 'buy', conditionId: '0x1', outcome: 'YES', amountUSDC: '15', orderType: 'market' },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.49, size: 100, orderID: 'b1' }],
+            asks: [{ price: 0.51, size: 100, orderID: 'a1' }],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '26190', allowance: '26190' }
+              : { balance: '0', allowance: '0' }
+          ),
+          getBalances: async () => ({ collateral: '26190' }),
+        });
+        (server as any).fetchPolymarketPositions = async () => [];
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.balances.collateral.balance).toBeCloseTo(0.02619, 6);
+    expect(parsed.verdict).toBe('blocked');
+    expect(parsed.checks.some((check: { name: string; status: string; message: string }) =>
+      check.name === 'collateral_balance' &&
+      check.status === 'blocked' &&
+      /0\.02619/.test(check.message))).toBe(true);
+  });
+
+  it('pm_buy rejects microUSDC-funded wallets before attempting a market order', async () => {
+    const createAndPostMarketOrder = vi.fn();
+    const { isError, text } = await callServerTool(
+      'pm_buy',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '15', orderType: 'market' },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.49, size: 100, orderID: 'b1' }],
+            asks: [{ price: 0.51, size: 100, orderID: 'a1' }],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '26190', allowance: '26190' }
+              : { balance: '0', allowance: '0' }
+          ),
+          getBalances: async () => ({ collateral: '26190' }),
+          createAndPostMarketOrder,
+        });
+        (server as any).fetchPolymarketPositions = async () => [];
+      },
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toMatch(/pm_buy preflight failed/i);
+    expect(text).toMatch(/below requested 15 USDC/i);
+    expect(createAndPostMarketOrder).not.toHaveBeenCalled();
   });
 
   it('pm_order returns venue-first reconciliation details', async () => {
