@@ -1,6 +1,7 @@
 import { getAddress } from 'ethers';
 import { SAVAX_CONTRACT } from './liquid-staking';
 import { YOUSD_VAULT } from './vaults';
+import { AVAPILOT_SEED_SERVICES } from './avapilot-seed';
 import { getChainByAlias, getChainById, CHAIN_ALIASES } from '../utils/chains';
 import type { ChainName } from '../utils/networks';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
@@ -87,6 +88,41 @@ export class LocalCanonicalDappRegistryProvider implements DappRegistryProvider 
   }
 }
 
+const AVAPILOT_DAPP_RECORDS: DappRecord[] = AVAPILOT_SEED_SERVICES.flatMap((service) =>
+  service.contracts.map((contract) => ({
+    address: normalizeAddress(contract.address),
+    network: 'avalanche' as const,
+    protocol: service.name,
+    source: 'avapilot_registry' as const,
+    aliases: [...(service.aliases ?? []), service.name, contract.label].filter(Boolean),
+    category: service.category,
+  })),
+);
+
+export class AvaPilotRegistryProvider implements DappRegistryProvider {
+  private readonly recordsByAddress = new Map<string, DappRecord>();
+  private readonly recordsByAlias = new Map<string, DappRecord>();
+
+  constructor(records: DappRecord[] = AVAPILOT_DAPP_RECORDS) {
+    for (const record of records) {
+      const normalized = { ...record, address: normalizeAddress(record.address) };
+      this.recordsByAddress.set(normalized.address.toLowerCase(), normalized);
+      this.recordsByAlias.set(normalized.protocol.toLowerCase(), normalized);
+      for (const alias of normalized.aliases ?? []) {
+        this.recordsByAlias.set(alias.trim().toLowerCase(), normalized);
+      }
+    }
+  }
+
+  resolveByAddress(address: string): DappRecord | null {
+    return this.recordsByAddress.get(normalizeAddress(address).toLowerCase()) ?? null;
+  }
+
+  resolveByAlias(alias: string): DappRecord | null {
+    return this.recordsByAlias.get(alias.trim().toLowerCase()) ?? null;
+  }
+}
+
 export class CompositeDappRegistry {
   constructor(private readonly providers: DappRegistryProvider[]) {}
 
@@ -110,6 +146,7 @@ export class CompositeDappRegistry {
 export function createDefaultDappRegistry(): CompositeDappRegistry {
   return new CompositeDappRegistry([
     new LocalCanonicalDappRegistryProvider(),
+    new AvaPilotRegistryProvider(),
   ]);
 }
 

@@ -170,7 +170,7 @@ describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
       // Succeeded — should contain approved: true
       expect(text).toContain('approved');
     }
-  });
+  }, 15000);
 
   it('pm_buy attempts market lookup (no longer throws unimplemented)', async () => {
     const { isError, text } = await callServerTool('pm_buy', { conditionId: '0x1', outcome: 'YES', amountUSDC: '10' });

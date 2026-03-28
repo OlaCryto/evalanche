@@ -5,6 +5,7 @@
 export { LiquidStakingClient, SAVAX_CONTRACT } from './liquid-staking';
 export { VaultClient, YOUSD_VAULT } from './vaults';
 export {
+  AvaPilotRegistryProvider,
   CompositeDappRegistry,
   LocalCanonicalDappRegistryProvider,
   createDefaultDappRegistry,

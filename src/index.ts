@@ -72,6 +72,7 @@ export type {
 export { LiquidStakingClient } from './defi/liquid-staking';
 export { VaultClient, YOUSD_VAULT } from './defi/vaults';
 export {
+  AvaPilotRegistryProvider,
   CompositeDappRegistry,
   LocalCanonicalDappRegistryProvider,
   createDefaultDappRegistry,

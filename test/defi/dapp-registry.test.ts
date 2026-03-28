@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EvalancheError } from '../../src/utils/errors';
 import {
+  AvaPilotRegistryProvider,
   CompositeDappRegistry,
   LocalCanonicalDappRegistryProvider,
   createDefaultDappRegistry,
@@ -72,5 +73,46 @@ describe('DeFi dapp resolution', () => {
     expect(resolved.network).toBe('base');
     expect(resolved.protocol).toBe('yoUSD Vault');
     expect(resolved.source).toBe('local_registry');
+  });
+
+  it('resolves Avalanche dapps from the AvaPilot-backed provider', () => {
+    const registry = createDefaultDappRegistry();
+    const resolved = resolveDappTarget({
+      target: '0x60aE616a2155Ee3d9A68541Ba4544862310933d4',
+      currentNetwork: 'base',
+    }, registry);
+    expect(resolved.network).toBe('avalanche');
+    expect(resolved.protocol).toBe('Trader Joe');
+    expect(resolved.source).toBe('avapilot_registry');
+  });
+
+  it('resolves Avalanche aliases from the AvaPilot-backed provider', () => {
+    const registry = createDefaultDappRegistry();
+    const resolved = resolveDappTarget({
+      target: 'yieldyak',
+      currentNetwork: 'base',
+    }, registry);
+    expect(resolved.network).toBe('avalanche');
+    expect(resolved.protocol).toBe('Yield Yak');
+    expect(resolved.source).toBe('avapilot_registry');
+  });
+
+  it('keeps local canonical precedence over the AvaPilot snapshot', () => {
+    const registry = createDefaultDappRegistry();
+    const resolved = resolveDappTarget({
+      target: 'savax',
+      currentNetwork: 'base',
+    }, registry);
+    expect(resolved.network).toBe('avalanche');
+    expect(resolved.protocol).toBe('sAVAX');
+    expect(resolved.source).toBe('local_registry');
+  });
+
+  it('does not require network access to resolve AvaPilot-backed entries', () => {
+    const provider = new AvaPilotRegistryProvider();
+    const resolved = provider.resolveByAddress('0x45A01E4e04F14f7A4a6702c74187c5F6222033cd');
+    expect(resolved?.network).toBe('avalanche');
+    expect(resolved?.protocol).toBe('Stargate');
+    expect(resolved?.source).toBe('avapilot_registry');
   });
 });
