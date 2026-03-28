@@ -159,7 +159,7 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('1.8.0');
+    expect(result.serverInfo.version).toBe('1.8.6');
   });
 
   it('auto-routes yoUSD vault_info to Base without manual network switching', async () => {

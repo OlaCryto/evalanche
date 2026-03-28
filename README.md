@@ -893,7 +893,7 @@ For live operator validation, use the runbook in [docs/live-smoke-checklist.md](
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.8.6 (planned)
+### v1.8.6 (current)
 - **Report-closure remediation**
 - DeFi MCP tools now resolve known protocols to canonical chains, support interoperable address inputs, and fail clearly on explicit wrong-chain requests
 - Avalanche dapp resolution is enriched by a vendored AvaPilot-backed registry provider without introducing runtime GitHub/network dependency
