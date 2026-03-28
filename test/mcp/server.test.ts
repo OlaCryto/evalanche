@@ -377,6 +377,8 @@ describe('EvalancheMCPServer', () => {
         statusTimestamp: 1234,
         order: { orderId: '555', market: 'BTC', side: 'BUY' },
       }),
+      getOpenOrders: vi.fn().mockResolvedValue([{ orderId: '555', market: 'BTC' }]),
+      getAccountState: vi.fn().mockResolvedValue({ accountValue: '1000', positions: [] }),
     };
     const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
     agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
@@ -394,7 +396,110 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tool).toBe('hyperliquid_place_limit_order');
     expect(parsed.submission.orderId).toBe('555');
-    expect(parsed.verification.status).toBe('open');
+    expect(parsed.verification.order.status).toBe('open');
+    expect(parsed.verification.openOrders).toHaveLength(1);
+    expect(parsed.verification.accountState.accountValue).toBe('1000');
+  });
+
+  it('handles hyperliquid_place_market_order with post-trade verification', async () => {
+    const mockHyperliquid = {
+      placeMarketOrderDetailed: vi.fn().mockResolvedValue({
+        orderId: '777',
+        status: 'filled',
+        averageFillPrice: '100200',
+        raw: {},
+      }),
+      getOrder: vi.fn().mockResolvedValue({ status: 'filled', order: { orderId: '777', market: 'BTC' } }),
+      getPositions: vi.fn().mockResolvedValue([{ market: 'BTC', side: 'LONG', size: '0.1' }]),
+      getTrades: vi.fn().mockResolvedValue([{ hash: '0xtrade', market: 'BTC' }]),
+    };
+    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
+    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 26,
+      method: 'tools/call',
+      params: {
+        name: 'hyperliquid_place_market_order',
+        arguments: { market: 'BTC', side: 'BUY', size: '0.1' },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tool).toBe('hyperliquid_place_market_order');
+    expect(parsed.verification.order.status).toBe('filled');
+    expect(parsed.verification.positions).toHaveLength(1);
+    expect(parsed.verification.trades).toHaveLength(1);
+  });
+
+  it('handles hyperliquid_cancel_order with post-cancel verification', async () => {
+    const mockHyperliquid = {
+      cancelOrder: vi.fn().mockResolvedValue(undefined),
+      getOrder: vi.fn().mockResolvedValue({ status: 'canceled', order: { orderId: '555', market: 'BTC' } }),
+      getOpenOrders: vi.fn().mockResolvedValue([]),
+    };
+    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
+    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 27,
+      method: 'tools/call',
+      params: {
+        name: 'hyperliquid_cancel_order',
+        arguments: { orderId: '555' },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.verification.order.status).toBe('canceled');
+    expect(parsed.verification.openOrders).toHaveLength(0);
+  });
+
+  it('handles hyperliquid_close_position and preserves empty-account edge cases', async () => {
+    const mockHyperliquid = {
+      closePosition: vi.fn().mockResolvedValue('close-1'),
+      getOrder: vi.fn().mockResolvedValue({ status: 'filled', order: { orderId: 'close-1', market: 'BTC' } }),
+      getPositions: vi.fn().mockResolvedValue([]),
+      getAccountState: vi.fn().mockResolvedValue({ accountValue: '500', positions: [] }),
+    };
+    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
+    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 28,
+      method: 'tools/call',
+      params: {
+        name: 'hyperliquid_close_position',
+        arguments: { market: 'BTC' },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.verification.order.status).toBe('filled');
+    expect(parsed.verification.positions).toEqual([]);
+    expect(parsed.verification.accountState.positions).toEqual([]);
+  });
+
+  it('handles hyperliquid_get_positions for an empty account', async () => {
+    const mockHyperliquid = {
+      getPositions: vi.fn().mockResolvedValue([]),
+    };
+    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
+    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 29,
+      method: 'tools/call',
+      params: { name: 'hyperliquid_get_positions', arguments: {} },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.count).toBe(0);
+    expect(parsed.positions).toEqual([]);
   });
 
   it('handles lifi_swap with submission and verification envelope', async () => {
@@ -426,6 +531,7 @@ describe('EvalancheMCPServer', () => {
           fromToken: 'native',
           toToken: '0xToken',
           fromAmount: '1',
+          routeStrategy: 'fastest_route',
         },
       },
     });
@@ -433,7 +539,51 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tool).toBe('lifi_swap');
     expect(parsed.submission.txHash).toBe('0xtx');
+    expect(parsed.request.routeStrategy).toBe('fastest_route');
     expect(parsed.verification.sourceReceiptStatus).toBe(1);
+    expect(parsed.verification.txHash).toBe('0xtx');
+  });
+
+  it('handles lifi_compose with cross-chain verification envelope', async () => {
+    const agent = (server as unknown as { agent: { bridgeTokensDetailed: ReturnType<typeof vi.fn> } }).agent;
+    agent.bridgeTokensDetailed = vi.fn().mockResolvedValue({
+      txHash: '0xbridge',
+      status: 'success',
+      routeId: 'route-2',
+      tool: 'across',
+      sourceReceiptStatus: 1,
+      transferStatus: { status: 'PENDING', substatus: 'WAIT_SOURCE_CONFIRMATIONS' },
+      balances: {
+        fromTokenBefore: { amount: '10' },
+        fromTokenAfter: { amount: '9' },
+        toTokenBefore: { amount: '0' },
+        toTokenAfter: { amount: '1' },
+      },
+      warnings: ['Bridge still pending destination confirmations.'],
+    });
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'tools/call',
+      params: {
+        name: 'lifi_compose',
+        arguments: {
+          fromChainId: 1,
+          toChainId: 42161,
+          fromToken: 'native',
+          toVaultToken: '0xVault',
+          fromAmount: '1',
+          routeStrategy: 'minimum_execution_time',
+        },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tool).toBe('lifi_compose');
+    expect(parsed.request.routeStrategy).toBe('minimum_execution_time');
+    expect(parsed.verification.transferStatus.status).toBe('PENDING');
+    expect(parsed.verification.txHash).toBe('0xbridge');
   });
 
   it('handles pm_cancel_order with venue reconciliation envelope', async () => {

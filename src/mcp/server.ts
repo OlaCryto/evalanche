@@ -2920,14 +2920,20 @@ export class EvalancheMCPServer {
             reduceOnly: args.reduceOnly as boolean | undefined,
           };
           const submission = await hyperliquid.placeMarketOrderDetailed(request);
-          const verification = submission.orderId
+          const order = submission.orderId
             ? await hyperliquid.getOrder(submission.orderId)
             : { status: submission.status, raw: submission.raw };
+          const positions = await hyperliquid.getPositions();
+          const trades = await hyperliquid.getTrades();
           result = {
             tool: 'hyperliquid_place_market_order',
             request,
             submission,
-            verification,
+            verification: {
+              order,
+              positions,
+              trades,
+            },
             warnings: [],
           };
           break;
@@ -2945,14 +2951,20 @@ export class EvalancheMCPServer {
             postOnly: args.postOnly as boolean | undefined,
           };
           const submission = await hyperliquid.placeLimitOrderDetailed(request);
-          const verification = submission.orderId
+          const order = submission.orderId
             ? await hyperliquid.getOrder(submission.orderId)
             : { status: submission.status, raw: submission.raw };
+          const openOrders = await hyperliquid.getOpenOrders();
+          const accountState = await hyperliquid.getAccountState();
           result = {
             tool: 'hyperliquid_place_limit_order',
             request,
             submission,
-            verification,
+            verification: {
+              order,
+              openOrders,
+              accountState,
+            },
             warnings: [],
           };
           break;
@@ -2962,12 +2974,16 @@ export class EvalancheMCPServer {
           const hyperliquid = await this.agent.hyperliquid();
           const request = { orderId: args.orderId as string };
           await hyperliquid.cancelOrder(request.orderId);
-          const verification = await hyperliquid.getOrder(request.orderId);
+          const order = await hyperliquid.getOrder(request.orderId);
+          const openOrders = await hyperliquid.getOpenOrders();
           result = {
             tool: 'hyperliquid_cancel_order',
             request,
             submission: { status: 'canceled', orderId: request.orderId },
-            verification,
+            verification: {
+              order,
+              openOrders,
+            },
             warnings: [],
           };
           break;
@@ -2977,13 +2993,18 @@ export class EvalancheMCPServer {
           const hyperliquid = await this.agent.hyperliquid();
           const request = { market: args.market as string };
           const submissionOrderId = await hyperliquid.closePosition(request.market);
-          const verification = await hyperliquid.getOrder(submissionOrderId);
+          const order = await hyperliquid.getOrder(submissionOrderId);
           const positions = await hyperliquid.getPositions();
+          const accountState = await hyperliquid.getAccountState();
           result = {
             tool: 'hyperliquid_close_position',
             request,
             submission: { orderId: submissionOrderId, status: 'submitted' },
-            verification,
+            verification: {
+              order,
+              positions,
+              accountState,
+            },
             warnings: [],
             positions,
           };
@@ -3083,11 +3104,14 @@ export class EvalancheMCPServer {
               tool: submission.tool,
             },
             verification: {
+              txHash: submission.txHash,
+              routeId: submission.routeId,
+              tool: submission.tool,
               sourceReceiptStatus: submission.sourceReceiptStatus,
               transferStatus: submission.transferStatus ?? null,
               balances: submission.balances ?? null,
             },
-            warnings: submission.warnings,
+            warnings: submission.warnings ?? [],
             raw: submission,
           };
           break;
@@ -3162,11 +3186,14 @@ export class EvalancheMCPServer {
               tool: submission.tool,
             },
             verification: {
+              txHash: submission.txHash,
+              routeId: submission.routeId,
+              tool: submission.tool,
               sourceReceiptStatus: submission.sourceReceiptStatus,
               transferStatus: submission.transferStatus ?? null,
               balances: submission.balances ?? null,
             },
-            warnings: submission.warnings,
+            warnings: submission.warnings ?? [],
             raw: submission,
           };
           break;
