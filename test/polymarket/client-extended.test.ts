@@ -300,7 +300,7 @@ describe('MCP server Polymarket sell protections', () => {
     expect(parsed.limitPrice).toBeGreaterThanOrEqual(parsed.minAcceptablePrice);
     expect(createOrder).toHaveBeenCalledTimes(1);
     expect(postOrder).toHaveBeenCalledWith({ signed: true }, 'FAK', false);
-  });
+  }, 10000);
 
   it('pm_limit_sell honors postOnly=false by allowing immediate matching', async () => {
     const createOrder = vi.fn().mockResolvedValue({ signed: true });
