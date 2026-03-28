@@ -1,4 +1,4 @@
-# Evalanche Live Smoke Checklist
+# Evalanche Live Smoke and Report-Closure Checklist
 
 Use this runbook before cutting an execution-facing release. The goal is to confirm that the real venue or protocol still behaves the way the automated test suite expects.
 
@@ -53,13 +53,34 @@ Use this runbook before cutting an execution-facing release. The goal is to conf
 ## 4. Yield / Vaults
 
 ### Liquid staking checks
-- `savax_stake_quote` succeeds for a tiny AVAX amount.
-- `savax_unstake_quote` succeeds and reports whether the path is instant or delayed.
+- `savax_stake_quote` succeeds for a tiny AVAX amount and reports `resolution.network = avalanche` when routed through MCP.
+- `savax_unstake_quote` succeeds on Avalanche and reports whether the path is instant or delayed.
+- Calling `savax_*` on a non-Avalanche explicit network fails immediately with a wrong-chain style error instead of a generic revert.
 
 ### Vault checks
-- `vault_info` returns asset/share decimals correctly.
-- `vault_deposit_quote` and `vault_withdraw_quote` succeed for a tiny amount.
+- `vault_info` auto-routes known vaults such as yoUSD to Base when the caller omits a network.
+- `vault_deposit_quote` and `vault_withdraw_quote` succeed for a tiny amount without manual network switching for known vaults.
+- Explicit wrong-chain vault calls fail clearly instead of surfacing opaque decode noise.
 - If funding is available, execute a tiny deposit and withdraw and confirm resulting balances or shares.
+
+### Resolution checks
+- Interoperable address inputs like `0x...@base` resolve to the expected chain.
+- Avalanche protocols can resolve through the vendored AvaPilot-backed registry snapshot without live network access.
+- Local canonical mappings override external/provider mappings when they disagree.
+
+## Report-closure matrix
+
+Record each report claim as one of:
+- `fixed in code`
+- `covered by regression`
+- `manually revalidated live`
+
+Use this minimum mapping before closing an execution-readiness report:
+- yoUSD wrong-chain MCP failure: fixed via canonical Base routing, regression covered, then live-checked with `vault_info` and `vault_deposit_quote`
+- sAVAX wrong-chain MCP failure: fixed via canonical Avalanche routing, regression covered, then live-checked with `savax_stake_quote` and `savax_unstake_quote`
+- Polymarket stale local assumption risk: fixed via venue-truth balances and reconciliation, regression covered, then live-checked with `pm_preflight`, `pm_order`, and `pm_reconcile`
+- Hyperliquid uncertified write path: MCP verification envelope covered by regression, then live-checked with tiny limit/market flows
+- LI.FI uncertified execution path: MCP verification envelope covered by regression, then live-checked with tiny swap/bridge flows
 
 ## Release gate
 
@@ -67,3 +88,4 @@ Do not ship if any of these fail:
 - a write path returns an ad hoc response shape instead of the expected envelope
 - venue or protocol verification disagrees with the local submission result
 - a previously fixed bug reproduces without a failing automated test
+- the report-closure matrix still has any in-scope claim without regression coverage

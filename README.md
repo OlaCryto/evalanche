@@ -340,6 +340,13 @@ await agent.delegate('NodeID-...', '25', 30);
 
 ### DeFi — Liquid Staking & EIP-4626 Vaults (v1.2.0)
 
+Known DeFi surfaces are now chain-aware:
+
+- known vaults such as yoUSD auto-route to Base through Evalanche's canonical registry
+- Avalanche-native protocols such as sAVAX auto-route to Avalanche
+- address inputs can be passed as interoperable addresses like `0x...@base`
+- Avalanche protocol resolution is enriched by a vendored AvaPilot-backed registry snapshot while local canonical mappings remain authoritative
+
 ```typescript
 const agent = new Evalanche({ privateKey: '0x...', network: 'avalanche' });
 const { staking, vaults } = agent.defi();
@@ -359,6 +366,9 @@ await staking.sAvaxUnstakeDelayed('5');      // requestRedeem (async, no pool ne
 
 // EIP-4626 vaults — works on any chain
 const YOUSD = '0x0000000f2eb9f69274678c76222b35eec7588a65'; // Base
+
+// Interoperable addresses are also accepted by DeFi MCP tools:
+// vault_info { vaultAddress: '0x0000000f2eb9f69274678c76222b35eec7588a65@base' }
 
 const baseAgent = new Evalanche({ privateKey: '0x...', network: 'base' });
 const { vaults: baseVaults } = baseAgent.defi();
@@ -438,6 +448,7 @@ Supported Polymarket features today:
 - balances, positions, open orders, order lookup, trade history, and order cancellation
 - deterministic preflight checks before writes
 - venue-first reconciliation via `pm_order` and `pm_reconcile`
+- venue-state summaries and mismatch warnings when conditional balances and position snapshots disagree
 - direct buy and sell order placement through the SDK
 - MCP `pm_buy` for market and limit buys
 - MCP `pm_sell` for slippage-protected immediate sells
@@ -730,6 +741,8 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 
 Execution-oriented tools (`pm_*`, `hyperliquid_*`, `lifi_swap`, `lifi_compose`) return stable envelopes with `request`, `submission`, `verification`, and `warnings`.
 
+DeFi MCP tools also accept an optional `network` override. For known protocols, Evalanche validates the requested chain against the canonical chain before issuing contract reads or writes.
+
 For live operator validation, use the runbook in [docs/live-smoke-checklist.md](/Users/jaack/Desktop/Github/evalanche/docs/live-smoke-checklist.md).
 
 ### Environment Variables
@@ -880,7 +893,15 @@ For live operator validation, use the runbook in [docs/live-smoke-checklist.md](
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.8.0 (current)
+### v1.8.6 (planned)
+- **Report-closure remediation**
+- DeFi MCP tools now resolve known protocols to canonical chains, support interoperable address inputs, and fail clearly on explicit wrong-chain requests
+- Avalanche dapp resolution is enriched by a vendored AvaPilot-backed registry provider without introducing runtime GitHub/network dependency
+- Polymarket sell and reconciliation flows now surface venue-state summaries and mismatch warnings directly in execution envelopes
+- Hyperliquid and LI.FI MCP execution flows now return stronger verification payloads for operator recertification
+- the live smoke checklist now doubles as a report-closure matrix for regression coverage and manual validation
+
+### v1.8.0
 - **Execution certification**
 - Hyperliquid now has a real trade surface in both the SDK and MCP: market orders, limit orders, cancel, close, orders, and fills
 - LI.FI execution paths now return structured submission and verification envelopes, including tx hashes, receipt status, transfer status, and best-effort balance deltas

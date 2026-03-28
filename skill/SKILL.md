@@ -18,7 +18,8 @@ description: >
   trading perpetual futures on dYdX v4 (100+ markets), searching for perp markets across venues,
   querying CoinGecko market data, searching Polymarket markets and order books,
   buying or selling Polymarket outcome shares on Polygon,
-  staking/unstaking sAVAX via Benqi, depositing/withdrawing from EIP-4626 vaults (yoUSD, Morpho, Aave, etc).
+  staking/unstaking sAVAX via Benqi, depositing/withdrawing from EIP-4626 vaults (yoUSD, Morpho, Aave, etc),
+  and resolving known Avalanche/Base DeFi contracts with canonical chain routing or interoperable-address inputs.
   Don't use when: managing ENS (use moltbook scripts).
   Network: yes (EVM RPCs via Routescan + public fallbacks, dYdX Cosmos chain). Cost: gas fees per transaction.
 metadata:
@@ -414,6 +415,12 @@ await baseVaults.withdraw(YOUSD, '998');   // redeem shares
 **MCP tools (defi):**
 `savax_stake_quote`, `savax_stake`, `savax_unstake_quote`, `savax_unstake`,
 `vault_info`, `vault_deposit_quote`, `vault_deposit`, `vault_withdraw_quote`, `vault_withdraw`
+
+Known DeFi routing behavior:
+- yoUSD auto-routes to Base
+- sAVAX auto-routes to Avalanche
+- explicit wrong-chain overrides fail clearly before contract reads
+- interoperable address inputs like `0x...@base` are accepted for address-based DeFi tools
 
 ### Live Smoke Checklist
 
