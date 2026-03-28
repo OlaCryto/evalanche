@@ -1811,6 +1811,38 @@ export class EvalancheMCPServer {
     }) ?? null;
   }
 
+  private normalizePolymarketPositionSize(position: unknown): number {
+    if (!position || typeof position !== 'object') return 0;
+    const record = position as Record<string, unknown>;
+    const candidate = record.size ?? record.balance ?? 0;
+    const parsed = Number(candidate);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private buildPolymarketVenueStateSummary(input: {
+    tokenId?: string;
+    balances?: { conditional?: { balance?: number } | null } | null;
+    relevantPosition?: unknown;
+  }) {
+    const conditionalBalance = Number(input.balances?.conditional?.balance ?? 0);
+    const positionSize = this.normalizePolymarketPositionSize(input.relevantPosition);
+    const hasMismatch = Boolean(
+      input.tokenId
+      && (input.balances?.conditional != null || input.relevantPosition != null)
+      && Math.abs(conditionalBalance - positionSize) > 1e-9,
+    );
+
+    return {
+      tokenId: input.tokenId ?? null,
+      conditionalBalance,
+      positionSize,
+      hasMismatch,
+      warning: hasMismatch
+        ? `Venue conditional balance ${conditionalBalance} differs from position size ${positionSize}.`
+        : null,
+    };
+  }
+
   private async inspectPolymarketMarket(conditionId: string): Promise<any> {
     try {
       const market = await this.getPolymarket().getMarket(conditionId);
@@ -2192,8 +2224,8 @@ export class EvalancheMCPServer {
           status: conditionalBalance >= desiredShares ? 'pass' : 'blocked',
           message:
             conditionalBalance >= desiredShares
-              ? `Conditional balance ${conditionalBalance} covers desired sell size ${desiredShares}.`
-              : `Conditional balance ${conditionalBalance} is below desired sell size ${desiredShares}.`,
+              ? `Venue conditional balance ${conditionalBalance} covers desired sell size ${desiredShares}.`
+              : `Venue conditional balance ${conditionalBalance} is below desired sell size ${desiredShares}.`,
         });
         checks.push({
           name: 'visible_liquidity',
@@ -2227,8 +2259,8 @@ export class EvalancheMCPServer {
         status: conditionalBalance >= shares ? 'pass' : 'blocked',
         message:
           conditionalBalance >= shares
-            ? `Conditional balance ${conditionalBalance} covers ${shares} shares.`
-            : `Conditional balance ${conditionalBalance} is below ${shares} shares.`,
+            ? `Venue conditional balance ${conditionalBalance} covers ${shares} shares.`
+            : `Venue conditional balance ${conditionalBalance} is below ${shares} shares.`,
       });
       checks.push({
         name: 'price',
@@ -2315,6 +2347,11 @@ export class EvalancheMCPServer {
         : null)
       : null;
     const relevantPosition = this.findRelevantPolymarketPosition(positions, tokenId);
+    const venueState = this.buildPolymarketVenueStateSummary({
+      tokenId,
+      balances,
+      relevantPosition,
+    });
 
     const orderStatus = order
       ? String((order as Record<string, unknown>).status ?? 'unknown')
@@ -2356,6 +2393,8 @@ export class EvalancheMCPServer {
           ? Number((relevantPosition as Record<string, unknown>).size ?? (relevantPosition as Record<string, unknown>).balance ?? 0)
           : 0,
       },
+      venueState,
+      warnings: venueState.warning ? [venueState.warning] : [],
     };
   }
 
@@ -4190,6 +4229,11 @@ export class EvalancheMCPServer {
             conditionId,
             outcome,
           });
+          const venueStateUsed = this.buildPolymarketVenueStateSummary({
+            tokenId,
+            balances: preflight.balances,
+            relevantPosition: preflight.positions?.relevantPosition,
+          });
 
           result = {
             tool: 'pm_buy',
@@ -4201,15 +4245,17 @@ export class EvalancheMCPServer {
               tokenId,
               outcome,
               amountUSDC,
+              venueStateUsed,
               raw: orderResult,
             },
             verification,
-            warnings: preflight.warnings ?? [],
+            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
             orderID: orderId,
             status: orderResult?.status ?? 'SUBMITTED',
             tokenId,
             outcome,
             amountUSDC,
+            venueStateUsed,
           };
           break;
         }
@@ -4315,6 +4361,11 @@ export class EvalancheMCPServer {
             conditionId: sellConditionId,
             outcome: sellOutcome,
           });
+          const venueStateUsed = this.buildPolymarketVenueStateSummary({
+            tokenId: sellTokenId,
+            balances: preflight.balances,
+            relevantPosition: preflight.positions?.relevantPosition,
+          });
 
           result = {
             tool: 'pm_sell',
@@ -4334,10 +4385,11 @@ export class EvalancheMCPServer {
               averageFillPrice: avgFillPrice,
               totalUSDC: filledSize * avgFillPrice,
               proceedsTargetUSDC: sellAmountUSDC,
+              venueStateUsed,
               raw: orderRes,
             },
             verification,
-            warnings: preflight.warnings ?? [],
+            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
             orderID: orderId,
             status: orderRes?.status ?? 'submitted',
             tokenId: sellTokenId,
@@ -4352,6 +4404,7 @@ export class EvalancheMCPServer {
             protectedByLimitOrder: true,
             orderType: 'FAK',
             limitPrice,
+            venueStateUsed,
           };
           break;
         }
@@ -4513,6 +4566,11 @@ export class EvalancheMCPServer {
             conditionId: lsConditionId,
             outcome: lsOutcome,
           });
+          const venueStateUsed = this.buildPolymarketVenueStateSummary({
+            tokenId: lsTokenId,
+            balances: preflight.balances,
+            relevantPosition: preflight.positions?.relevantPosition,
+          });
 
           result = {
             tool: 'pm_limit_sell',
@@ -4535,10 +4593,11 @@ export class EvalancheMCPServer {
               postOnly: lsPostOnly,
               orderType: 'GTC',
               deferExec: lsPostOnly,
+              venueStateUsed,
               raw: orderRes,
             },
             verification,
-            warnings: preflight.warnings ?? [],
+            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
             orderID,
             status: orderStatus,
             tokenId: lsTokenId,
@@ -4549,6 +4608,7 @@ export class EvalancheMCPServer {
             postOnly: lsPostOnly,
             orderType: 'GTC',
             deferExec: lsPostOnly, // true = post to book only (no AMM hit)
+            venueStateUsed,
           };
           break;
         }

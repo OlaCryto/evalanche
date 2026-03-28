@@ -298,9 +298,45 @@ describe('MCP server Polymarket sell protections', () => {
     expect(parsed.protectedByLimitOrder).toBe(true);
     expect(parsed.orderType).toBe('FAK');
     expect(parsed.limitPrice).toBeGreaterThanOrEqual(parsed.minAcceptablePrice);
+    expect(parsed.venueStateUsed.conditionalBalance).toBe(20);
     expect(createOrder).toHaveBeenCalledTimes(1);
     expect(postOrder).toHaveBeenCalledWith({ signed: true }, 'FAK', false);
   }, 10000);
+
+  it('pm_sell blocks unsafe execution from venue truth even when positions suggest more size', async () => {
+    const createOrder = vi.fn();
+
+    const { isError, text } = await callServerTool(
+      'pm_sell',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '7', maxSlippagePct: 1 },
+      (server) => {
+        (server as any).getPolymarket = () => ({
+          getMarket: async () => ({
+            conditionId: '0x1',
+            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
+          }),
+          getOrderBook: async () => ({
+            bids: [{ price: 0.7, size: 20, orderID: 'b1' }],
+            asks: [],
+          }),
+        });
+        (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '100000000', allowance: '100000000' }
+              : { balance: '5', allowance: '5' }
+          ),
+          getBalances: async () => ({ collateral: '100' }),
+          createOrder,
+        });
+        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '20' }];
+      },
+    );
+
+    expect(isError).toBe(true);
+    expect(text).toMatch(/Venue conditional balance 5 is below desired sell size/i);
+    expect(createOrder).not.toHaveBeenCalled();
+  });
 
   it('pm_limit_sell honors postOnly=false by allowing immediate matching', async () => {
     const createOrder = vi.fn().mockResolvedValue({ signed: true });
@@ -567,6 +603,33 @@ describe('MCP server Polymarket inspection and reconciliation', () => {
     expect(parsed.order.orderId).toBe('ord-1');
     expect(parsed.reconciliation.orderState).toBe('MATCHED');
     expect(parsed.positions.relevantPosition.asset).toBe('tok-1');
+    expect(parsed.venueState.conditionalBalance).toBe(12);
+    expect(parsed.venueState.positionSize).toBe(12);
+  });
+
+  it('pm_reconcile surfaces venue mismatch warnings when conditional balance differs from position size', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_reconcile',
+      { tokenId: 'tok-1' },
+      (server) => {
+        (server as any).getAuthedClobClient = async () => ({
+          getOpenOrders: async () => [],
+          getTrades: async () => [],
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '50', allowance: '50' }
+              : { balance: '7', allowance: '7' }
+          ),
+          getBalances: async () => ({ collateral: '50' }),
+        });
+        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '12' }];
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.venueState.hasMismatch).toBe(true);
+    expect(parsed.warnings[0]).toMatch(/Venue conditional balance 7 differs from position size 12/i);
   });
 });
 
