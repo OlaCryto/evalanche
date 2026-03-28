@@ -418,6 +418,95 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'hyperliquid_get_markets',
+    description: 'List Hyperliquid perpetual markets, including HIP-3 metadata when available',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'hyperliquid_get_account_state',
+    description: 'Get Hyperliquid account summary for the connected wallet',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'hyperliquid_get_positions',
+    description: 'Get all open Hyperliquid perpetual positions',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'hyperliquid_place_market_order',
+    description: 'Place a Hyperliquid market order',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        market: { type: 'string', description: 'Perpetual market ticker (e.g. BTC)' },
+        side: { type: 'string', description: 'Order side: BUY or SELL' },
+        size: { type: 'string', description: 'Order size in base asset units' },
+        reduceOnly: { type: 'boolean', description: 'Set to true to only reduce an existing position' },
+      },
+      required: ['market', 'side', 'size'],
+    },
+  },
+  {
+    name: 'hyperliquid_place_limit_order',
+    description: 'Place a Hyperliquid limit order',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        market: { type: 'string', description: 'Perpetual market ticker (e.g. BTC)' },
+        side: { type: 'string', description: 'Order side: BUY or SELL' },
+        size: { type: 'string', description: 'Order size in base asset units' },
+        price: { type: 'string', description: 'Limit price' },
+        timeInForce: { type: 'string', description: 'Time in force: GTT, FOK, or IOC' },
+        reduceOnly: { type: 'boolean', description: 'Set to true to only reduce position size' },
+        postOnly: { type: 'boolean', description: 'Set to true to avoid taker execution' },
+      },
+      required: ['market', 'side', 'size', 'price'],
+    },
+  },
+  {
+    name: 'hyperliquid_cancel_order',
+    description: 'Cancel an open Hyperliquid order by order ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Hyperliquid order ID' },
+      },
+      required: ['orderId'],
+    },
+  },
+  {
+    name: 'hyperliquid_close_position',
+    description: 'Close an open Hyperliquid perpetual position with a reduce-only market order',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        market: { type: 'string', description: 'Perpetual market ticker to close' },
+      },
+      required: ['market'],
+    },
+  },
+  {
+    name: 'hyperliquid_get_order',
+    description: 'Get Hyperliquid order status by order ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Hyperliquid order ID' },
+      },
+      required: ['orderId'],
+    },
+  },
+  {
+    name: 'hyperliquid_get_orders',
+    description: 'List Hyperliquid open orders for the connected wallet',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'hyperliquid_get_trades',
+    description: 'List recent Hyperliquid fills for the connected wallet',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'find_perp_market',
     description: 'Search for a perpetual market ticker across all connected perp venues',
     inputSchema: {
@@ -1218,6 +1307,20 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'pm_cancel_order',
+    description: 'Cancel an open Polymarket order by order ID and verify the resulting venue state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orderId: { type: 'string', description: 'Polymarket order ID' },
+        tokenId: { type: 'string', description: 'Optional outcome token ID for tighter reconciliation' },
+        conditionId: { type: 'string', description: 'Optional market condition ID used with outcome to resolve tokenId' },
+        outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
+      },
+      required: ['orderId'],
+    },
+  },
+  {
     name: 'pm_open_orders',
     description: 'List Polymarket open orders, optionally filtered to a market outcome token.',
     inputSchema: {
@@ -1239,6 +1342,18 @@ const TOOLS: MCPTool[] = [
         conditionId: { type: 'string', description: 'Market condition ID (resolved with outcome into a token ID)' },
         outcome: { type: 'string', enum: ['YES', 'NO'], description: 'Outcome used with conditionId to resolve a token ID' },
       },
+    },
+  },
+  {
+    name: 'pm_deposit',
+    description: 'Deposit USDC into the Polymarket CLOB contract to enable trading. The CLOB requires USDC to be deposited (via registerCollateral) before buy/sell orders can execute. Use pm_balances to check your CLOB collateral balance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        amountUSDC: { type: 'string', description: 'Amount of USDC to deposit into the CLOB (e.g. "10.50")' },
+        skipApproveIfAllowanceAtLeast: { type: 'number', description: 'Skip ERC-20 approve step if existing on-chain allowance is >= this amount. Default: 0.' },
+      },
+      required: ['amountUSDC'],
     },
   },
   {
@@ -1587,8 +1702,8 @@ export class EvalancheMCPServer {
     const { polygon } = await import('viem/chains');
     const { privateKeyToAccount } = await import('viem/accounts');
 
-    const CLOB_CONTRACT = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E' as const;
-    const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174' as const;
+    const CLOB_CONTRACT = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E';
+    const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
     const USDC_DECIMALS = 6;
 
     let pk = this.agent.wallet.privateKey;
@@ -2293,7 +2408,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '1.7.9',
+              version: '1.8.0',
             },
           });
 
@@ -2691,6 +2806,125 @@ export class EvalancheMCPServer {
           break;
         }
 
+        case 'hyperliquid_get_markets': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const markets = await hyperliquid.getMarkets();
+          result = { count: markets.length, markets };
+          break;
+        }
+
+        case 'hyperliquid_get_account_state': {
+          const hyperliquid = await this.agent.hyperliquid();
+          result = await hyperliquid.getAccountState();
+          break;
+        }
+
+        case 'hyperliquid_get_positions': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const positions = await hyperliquid.getPositions();
+          result = { count: positions.length, positions };
+          break;
+        }
+
+        case 'hyperliquid_place_market_order': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const request = {
+            market: args.market as string,
+            side: args.side as 'BUY' | 'SELL',
+            size: args.size as string,
+            reduceOnly: args.reduceOnly as boolean | undefined,
+          };
+          const submission = await hyperliquid.placeMarketOrderDetailed(request);
+          const verification = submission.orderId
+            ? await hyperliquid.getOrder(submission.orderId)
+            : { status: submission.status, raw: submission.raw };
+          result = {
+            tool: 'hyperliquid_place_market_order',
+            request,
+            submission,
+            verification,
+            warnings: [],
+          };
+          break;
+        }
+
+        case 'hyperliquid_place_limit_order': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const request = {
+            market: args.market as string,
+            side: args.side as 'BUY' | 'SELL',
+            size: args.size as string,
+            price: args.price as string,
+            timeInForce: args.timeInForce as 'GTT' | 'FOK' | 'IOC' | undefined,
+            reduceOnly: args.reduceOnly as boolean | undefined,
+            postOnly: args.postOnly as boolean | undefined,
+          };
+          const submission = await hyperliquid.placeLimitOrderDetailed(request);
+          const verification = submission.orderId
+            ? await hyperliquid.getOrder(submission.orderId)
+            : { status: submission.status, raw: submission.raw };
+          result = {
+            tool: 'hyperliquid_place_limit_order',
+            request,
+            submission,
+            verification,
+            warnings: [],
+          };
+          break;
+        }
+
+        case 'hyperliquid_cancel_order': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const request = { orderId: args.orderId as string };
+          await hyperliquid.cancelOrder(request.orderId);
+          const verification = await hyperliquid.getOrder(request.orderId);
+          result = {
+            tool: 'hyperliquid_cancel_order',
+            request,
+            submission: { status: 'canceled', orderId: request.orderId },
+            verification,
+            warnings: [],
+          };
+          break;
+        }
+
+        case 'hyperliquid_close_position': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const request = { market: args.market as string };
+          const submissionOrderId = await hyperliquid.closePosition(request.market);
+          const verification = await hyperliquid.getOrder(submissionOrderId);
+          const positions = await hyperliquid.getPositions();
+          result = {
+            tool: 'hyperliquid_close_position',
+            request,
+            submission: { orderId: submissionOrderId, status: 'submitted' },
+            verification,
+            warnings: [],
+            positions,
+          };
+          break;
+        }
+
+        case 'hyperliquid_get_order': {
+          const hyperliquid = await this.agent.hyperliquid();
+          result = await hyperliquid.getOrder(args.orderId as string);
+          break;
+        }
+
+        case 'hyperliquid_get_orders': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const orders = await hyperliquid.getOpenOrders();
+          result = { count: orders.length, orders };
+          break;
+        }
+
+        case 'hyperliquid_get_trades': {
+          const hyperliquid = await this.agent.hyperliquid();
+          const trades = await hyperliquid.getTrades();
+          result = { count: trades.length, trades };
+          break;
+        }
+
         case 'find_perp_market': {
           const match = await this.agent.findPerpMarket(args.ticker as string);
           result = match;
@@ -2739,7 +2973,7 @@ export class EvalancheMCPServer {
 
         case 'lifi_swap': {
           const chainId = args.chainId as number;
-          result = await this.agent.swap({
+          const request = {
             fromChainId: chainId,
             toChainId: chainId,
             fromToken: this.normalizeToken(args.fromToken as string),
@@ -2752,7 +2986,25 @@ export class EvalancheMCPServer {
             preset: args.preset as string | undefined,
             maxPriceImpact: args.maxPriceImpact as number | undefined,
             skipSimulation: args.skipSimulation as boolean | undefined,
-          });
+          };
+          const submission = await this.agent.swapDetailed(request);
+          result = {
+            tool: 'lifi_swap',
+            request,
+            submission: {
+              txHash: submission.txHash,
+              status: submission.status,
+              routeId: submission.routeId,
+              tool: submission.tool,
+            },
+            verification: {
+              sourceReceiptStatus: submission.sourceReceiptStatus,
+              transferStatus: submission.transferStatus ?? null,
+              balances: submission.balances ?? null,
+            },
+            warnings: submission.warnings,
+            raw: submission,
+          };
           break;
         }
 
@@ -2800,7 +3052,7 @@ export class EvalancheMCPServer {
         }
 
         case 'lifi_compose': {
-          const txResult = await this.agent.bridgeTokens({
+          const request = {
             fromChainId: args.fromChainId as number,
             toChainId: args.toChainId as number,
             fromToken: this.normalizeToken(args.fromToken as string),
@@ -2813,8 +3065,25 @@ export class EvalancheMCPServer {
             preset: args.preset as string | undefined,
             maxPriceImpact: args.maxPriceImpact as number | undefined,
             skipSimulation: args.skipSimulation as boolean | undefined,
-          });
-          result = txResult;
+          };
+          const submission = await this.agent.bridgeTokensDetailed(request);
+          result = {
+            tool: 'lifi_compose',
+            request,
+            submission: {
+              txHash: submission.txHash,
+              status: submission.status,
+              routeId: submission.routeId,
+              tool: submission.tool,
+            },
+            verification: {
+              sourceReceiptStatus: submission.sourceReceiptStatus,
+              transferStatus: submission.transferStatus ?? null,
+              balances: submission.balances ?? null,
+            },
+            warnings: submission.warnings,
+            raw: submission,
+          };
           break;
         }
 
@@ -3198,10 +3467,17 @@ export class EvalancheMCPServer {
 
         case 'savax_unstake_quote': {
           const defi = this.agent.defi();
-          result = await defi.staking.sAvaxUnstakeQuote(
+          const quote = await defi.staking.sAvaxUnstakeQuote(
             args.shares as string,
             args.slippageBps as number | undefined,
           );
+          result = {
+            request: {
+              shares: args.shares as string,
+              slippageBps: args.slippageBps as number | undefined,
+            },
+            quote,
+          };
           break;
         }
 
@@ -3234,6 +3510,7 @@ export class EvalancheMCPServer {
           result = await defi.vaults.depositQuote(
             args.vaultAddress as string,
             args.assetAmount as string,
+            args.assetDecimals as number | undefined,
           );
           break;
         }
@@ -3243,6 +3520,7 @@ export class EvalancheMCPServer {
           const txResult = await defi.vaults.deposit(
             args.vaultAddress as string,
             args.assetAmount as string,
+            args.assetDecimals as number | undefined,
           );
           result = { hash: txResult.hash, status: txResult.receipt.status };
           break;
@@ -3253,6 +3531,7 @@ export class EvalancheMCPServer {
           result = await defi.vaults.withdrawQuote(
             args.vaultAddress as string,
             args.shareAmount as string,
+            args.shareDecimals as number | undefined,
           );
           break;
         }
@@ -3262,6 +3541,7 @@ export class EvalancheMCPServer {
           const txResult = await defi.vaults.withdraw(
             args.vaultAddress as string,
             args.shareAmount as string,
+            args.shareDecimals as number | undefined,
           );
           result = { hash: txResult.hash, status: txResult.receipt.status };
           break;
@@ -3362,6 +3642,39 @@ export class EvalancheMCPServer {
           break;
         }
 
+        case 'pm_cancel_order': {
+          const orderId = this.requirePolymarketString(args, 'orderId', 'pm_cancel_order');
+          let tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
+            ? args.tokenId.trim()
+            : undefined;
+          const conditionId = typeof args.conditionId === 'string' && args.conditionId.trim().length > 0
+            ? args.conditionId.trim()
+            : undefined;
+          const outcome = typeof args.outcome === 'string'
+            ? this.normalizePolymarketOutcome(args.outcome, 'pm_cancel_order')
+            : undefined;
+          if (!tokenId && conditionId && outcome) {
+            const resolution = await this.resolvePolymarketMarketToken(conditionId, outcome);
+            if (resolution.ok) tokenId = resolution.tokenId;
+          }
+          const authed = await this.getAuthedClobClient();
+          await authed.cancelOrder(orderId);
+          const verification = await this.reconcilePolymarketVenue({
+            orderId,
+            tokenId,
+            conditionId,
+            outcome,
+          });
+          result = {
+            tool: 'pm_cancel_order',
+            request: { orderId, tokenId, conditionId, outcome },
+            submission: { orderId, status: 'canceled' },
+            verification,
+            warnings: [],
+          };
+          break;
+        }
+
         case 'pm_open_orders': {
           let tokenId = typeof args.tokenId === 'string' && args.tokenId.trim().length > 0
             ? args.tokenId.trim()
@@ -3430,6 +3743,117 @@ export class EvalancheMCPServer {
           }
 
           result = { approved: true, txHash };
+          break;
+        }
+
+        case 'pm_deposit': {
+          // Deposit USDC into the Polymarket CLOB contract.
+          // Flow: (1) approve CLOB to pull USDC from wallet → (2) registerCollateral to credit CLOB balance
+          const rawAmount = parseFloat(args.amountUSDC as string);
+          if (isNaN(rawAmount) || rawAmount <= 0) {
+            throw new Error(`amountUSDC must be a positive number. Got: ${args.amountUSDC}`);
+          }
+
+          const { createWalletClient, http, parseUnits, formatUnits } = await import('viem');
+          const { polygon } = await import('viem/chains');
+          const { privateKeyToAccount } = await import('viem/accounts');
+
+          let pk = this.agent.wallet.privateKey;
+          if (!pk) throw new Error('Agent wallet has no privateKey');
+          if (!pk.startsWith('0x')) pk = `0x${pk}`;
+
+          const account = privateKeyToAccount(pk as `0x${string}`);
+          const walletClient = createWalletClient({
+            account,
+            chain: polygon,
+            transport: http(),
+          });
+          const publicClient = (await import('viem')).createPublicClient({
+            chain: polygon,
+            transport: http(),
+          });
+
+          // Polymarket CLOB contract and USDC on Polygon
+          const CLOB_CONTRACT = '0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E' as `0x${string}`;
+          const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174' as `0x${string}`;
+          const USDC_DECIMALS = 6;
+          const depositAmount = parseUnits(String(rawAmount), USDC_DECIMALS);
+
+          // Step 1: check current on-chain allowance and USDC balance
+          const [allowanceRaw, balanceRaw] = await Promise.all([
+            publicClient.readContract({
+              address: USDC_CONTRACT,
+              abi: [{ name: 'allowance', type: 'function', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } as any],
+              functionName: 'allowance',
+              args: [account.address, CLOB_CONTRACT as `0x${string}`],
+            }),
+            publicClient.readContract({
+              address: USDC_CONTRACT,
+              abi: [{ name: 'balanceOf', type: 'function', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] } as any],
+              functionName: 'balanceOf',
+              args: [account.address as `0x${string}`],
+            }),
+          ]);
+          const currentAllowance = (allowanceRaw as bigint) ?? 0n;
+          const usdcBalance = (balanceRaw as bigint) ?? 0n;
+
+          if (usdcBalance < depositAmount) {
+            throw new Error(
+              `Insufficient USDC balance. Have: $${formatUnits(usdcBalance, USDC_DECIMALS)}, ` +
+              `Need: $${rawAmount}. Deposit USDC to this wallet first.`,
+            );
+          }
+
+          // Step 2: approve CLOB to pull USDC if needed
+          let approveHash: string | null = null;
+          if (currentAllowance < depositAmount) {
+            const maxUint = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
+            approveHash = await walletClient.writeContract({
+              address: USDC_CONTRACT,
+              abi: [{ name: 'approve', type: 'function', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable' } as any],
+              functionName: 'approve',
+              args: [CLOB_CONTRACT as `0x${string}`, maxUint],
+            });
+            await publicClient.waitForTransactionReceipt({ hash: approveHash as `0x${string}` });
+          }
+
+          // Step 3: call registerCollateral on the CLOB contract to credit CLOB balance
+          let depositHash: string | null = null;
+          let depositSuccess = false;
+          try {
+            depositHash = await walletClient.writeContract({
+              address: CLOB_CONTRACT,
+              abi: [{ name: 'registerCollateral', type: 'function', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }], stateMutability: 'nonpayable' } as any],
+              functionName: 'registerCollateral',
+              args: [depositAmount as bigint],
+            });
+            const receipt = await publicClient.waitForTransactionReceipt({ hash: depositHash as `0x${string}` });
+            depositSuccess = receipt.status === 'success';
+          } catch (err: any) {
+            const msg = err?.shortMessage ?? err?.message ?? String(err);
+            throw new Error(
+              `pm_deposit registerCollateral failed: ${msg}. ` +
+              `The CLOB contract may reject deposits that exceed position limits.`,
+            );
+          }
+
+          // Step 4: update CLOB's off-chain balance record
+          const authed = await this.getAuthedClobClient();
+          try {
+            await authed.updateBalanceAllowance({ asset_type: 'COLLATERAL' });
+          } catch (e) {
+            // Non-fatal — on-chain deposit is confirmed
+          }
+
+          result = {
+            deposited: depositSuccess,
+            amountUSDC: rawAmount,
+            depositAmountRaw: depositAmount.toString(),
+            txHash: depositHash,
+            approveTxHash: approveHash,
+            CLOBContract: CLOB_CONTRACT,
+            note: 'registerCollateral called — USDC now in CLOB collateral balance',
+          };
           break;
         }
 

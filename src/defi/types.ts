@@ -50,6 +50,10 @@ export interface VaultQuote {
   shares: string;
   /** Expected assets value */
   expectedAssets: string;
+  /** Decimals for vault share amounts */
+  shareDecimals?: number;
+  /** Decimals for underlying asset amounts */
+  assetDecimals?: number;
   /** Fee on deposit, if any */
   depositFee?: string;
   /** Fee on withdrawal, if any */
@@ -63,6 +67,12 @@ export interface VaultInfo {
   name: string;
   /** Underlying asset address */
   asset: string;
+  /** Underlying asset symbol, when available */
+  assetSymbol?: string;
+  /** Underlying asset decimals */
+  assetDecimals?: number;
+  /** Vault share decimals */
+  shareDecimals?: number;
   /** Annual percentage yield, if known */
   apy?: number;
   /** Total assets held by the vault */

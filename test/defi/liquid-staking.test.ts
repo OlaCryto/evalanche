@@ -151,6 +151,17 @@ describe('LiquidStakingClient.sAvaxUnstakeQuote', () => {
 
     expect(quote.isInstant).toBe(false);
   });
+
+  it('wraps reverted unstake quote reads in CONTRACT_CALL_FAILED', async () => {
+    contractMock = makeContractMock({
+      getPooledAvaxByShares: vi.fn().mockRejectedValue(new Error('execution reverted')),
+    });
+
+    const client = new LiquidStakingClient(makeMockSigner());
+    await expect(client.sAvaxUnstakeQuote('10')).rejects.toMatchObject({
+      code: EvalancheErrorCode.CONTRACT_CALL_FAILED,
+    });
+  });
 });
 
 // ─── sAvaxUnstakeInstant ──────────────────────────────────────────────────────

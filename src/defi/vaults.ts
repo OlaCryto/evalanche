@@ -1,5 +1,5 @@
 /**
- * Minimal ERC-4626 vault client.
+ * Minimal ERC-4626 vault client with explicit asset/share decimal handling.
  */
 
 import { Contract, MaxUint256, formatUnits, parseUnits } from 'ethers';
@@ -29,6 +29,15 @@ const ERC20_ABI = [
   'function decimals() view returns (uint8)',
 ] as const;
 
+interface VaultMetadata {
+  name: string;
+  asset: string;
+  assetSymbol?: string;
+  assetDecimals: number;
+  shareDecimals: number;
+  totalAssets: bigint;
+}
+
 export class VaultClient {
   constructor(
     private readonly signer: AgentSigner,
@@ -45,58 +54,58 @@ export class VaultClient {
 
   async vaultInfo(vaultAddress: string): Promise<VaultInfo> {
     try {
-      const vault = this.vault(vaultAddress);
-      const [name, asset, totalAssets, decimals] = await Promise.all([
-        vault.name(),
-        vault.asset(),
-        vault.totalAssets(),
-        vault.decimals(),
-      ]);
+      const metadata = await this.loadMetadata(vaultAddress);
 
       return {
         address: vaultAddress,
         chain: this.chain,
-        name,
-        asset,
-        totalAssets: formatUnits(totalAssets, decimals),
+        name: metadata.name,
+        asset: metadata.asset,
+        assetSymbol: metadata.assetSymbol,
+        assetDecimals: metadata.assetDecimals,
+        shareDecimals: metadata.shareDecimals,
+        totalAssets: formatUnits(metadata.totalAssets, metadata.assetDecimals),
         eip4626: true,
       };
     } catch (error) {
-      throw new EvalancheError(
-        `Vault info failed: ${error instanceof Error ? error.message : String(error)}`,
-        EvalancheErrorCode.VAULT_ERROR,
-        error instanceof Error ? error : undefined,
-      );
+      throw this.wrapVaultError('Vault info failed', error, EvalancheErrorCode.VAULT_ERROR);
     }
   }
 
-  async depositQuote(vaultAddress: string, assets: string): Promise<VaultQuote> {
+  async depositQuote(
+    vaultAddress: string,
+    assets: string,
+    assetDecimalsOverride?: number,
+  ): Promise<VaultQuote> {
     try {
       const vault = this.vault(vaultAddress);
-      const decimals: number = await vault.decimals();
-      const amount = parseUnits(assets, decimals);
+      const metadata = await this.loadMetadata(vaultAddress);
+      const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
+      const amount = parseUnits(assets, assetDecimals);
       const shares = await vault.previewDeposit(amount);
 
       return {
-        shares: formatUnits(shares, decimals),
+        shares: formatUnits(shares, metadata.shareDecimals),
         expectedAssets: assets,
+        assetDecimals,
+        shareDecimals: metadata.shareDecimals,
       };
     } catch (error) {
-      throw new EvalancheError(
-        `Vault deposit quote failed: ${error instanceof Error ? error.message : String(error)}`,
-        EvalancheErrorCode.VAULT_ERROR,
-        error instanceof Error ? error : undefined,
-      );
+      throw this.wrapVaultError('Vault deposit quote failed', error, EvalancheErrorCode.VAULT_ERROR);
     }
   }
 
-  async deposit(vaultAddress: string, assets: string): Promise<TransactionResult> {
+  async deposit(
+    vaultAddress: string,
+    assets: string,
+    assetDecimalsOverride?: number,
+  ): Promise<TransactionResult> {
     try {
       const vault = this.vault(vaultAddress);
-      const assetAddress: string = await vault.asset();
-      const decimals: number = await vault.decimals();
-      const amount = parseUnits(assets, decimals);
-      const token = this.erc20(assetAddress);
+      const metadata = await this.loadMetadata(vaultAddress);
+      const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
+      const amount = parseUnits(assets, assetDecimals);
+      const token = this.erc20(metadata.asset);
 
       const allowance = await token.allowance(this.signer.address, vaultAddress);
       if (allowance < amount) {
@@ -109,49 +118,108 @@ export class VaultClient {
       if (!receipt) throw new Error('Transaction receipt is null');
       return { hash: tx.hash, receipt };
     } catch (error) {
-      throw new EvalancheError(
-        `Vault deposit failed: ${error instanceof Error ? error.message : String(error)}`,
-        EvalancheErrorCode.VAULT_ERROR,
-        error instanceof Error ? error : undefined,
-      );
+      throw this.wrapVaultError('Vault deposit failed', error, EvalancheErrorCode.VAULT_ERROR);
     }
   }
 
-  async withdrawQuote(vaultAddress: string, shares: string): Promise<VaultQuote> {
+  async withdrawQuote(
+    vaultAddress: string,
+    shares: string,
+    shareDecimalsOverride?: number,
+  ): Promise<VaultQuote> {
     try {
       const vault = this.vault(vaultAddress);
-      const decimals: number = await vault.decimals();
-      const shareAmount = parseUnits(shares, decimals);
+      const metadata = await this.loadMetadata(vaultAddress);
+      const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
+      const shareAmount = parseUnits(shares, shareDecimals);
       const assets = await vault.previewRedeem(shareAmount);
 
       return {
         shares,
-        expectedAssets: formatUnits(assets, decimals),
+        expectedAssets: formatUnits(assets, metadata.assetDecimals),
+        assetDecimals: metadata.assetDecimals,
+        shareDecimals,
       };
     } catch (error) {
-      throw new EvalancheError(
-        `Vault withdraw quote failed: ${error instanceof Error ? error.message : String(error)}`,
-        EvalancheErrorCode.VAULT_ERROR,
-        error instanceof Error ? error : undefined,
-      );
+      throw this.wrapVaultError('Vault withdraw quote failed', error, EvalancheErrorCode.VAULT_ERROR);
     }
   }
 
-  async withdraw(vaultAddress: string, shares: string): Promise<TransactionResult> {
+  async withdraw(
+    vaultAddress: string,
+    shares: string,
+    shareDecimalsOverride?: number,
+  ): Promise<TransactionResult> {
     try {
       const vault = this.vault(vaultAddress);
-      const decimals: number = await vault.decimals();
-      const shareAmount = parseUnits(shares, decimals);
+      const metadata = await this.loadMetadata(vaultAddress);
+      const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
+      const shareAmount = parseUnits(shares, shareDecimals);
       const tx = await vault.redeem(shareAmount, this.signer.address, this.signer.address);
       const receipt = await tx.wait();
       if (!receipt) throw new Error('Transaction receipt is null');
       return { hash: tx.hash, receipt };
     } catch (error) {
-      throw new EvalancheError(
-        `Vault withdraw failed: ${error instanceof Error ? error.message : String(error)}`,
+      throw this.wrapVaultError('Vault withdraw failed', error, EvalancheErrorCode.VAULT_ERROR);
+    }
+  }
+
+  private async loadMetadata(vaultAddress: string): Promise<VaultMetadata> {
+    const vault = this.vault(vaultAddress);
+
+    try {
+      const [name, asset, totalAssets, shareDecimals] = await Promise.all([
+        vault.name(),
+        vault.asset(),
+        vault.totalAssets(),
+        vault.decimals(),
+      ]);
+
+      const assetContract = this.erc20(asset);
+      const [assetDecimals, assetSymbol] = await Promise.all([
+        assetContract.decimals(),
+        assetContract.symbol().catch(() => undefined),
+      ]);
+
+      return {
+        name,
+        asset,
+        assetSymbol,
+        assetDecimals: Number(assetDecimals),
+        shareDecimals: Number(shareDecimals),
+        totalAssets,
+      };
+    } catch (error) {
+      throw this.wrapVaultError(
+        'Vault does not expose the required ERC-4626 metadata',
+        error,
         EvalancheErrorCode.VAULT_ERROR,
-        error instanceof Error ? error : undefined,
       );
     }
+  }
+
+  private wrapVaultError(message: string, error: unknown, code: EvalancheErrorCode): EvalancheError {
+    const detail = this.describeError(error);
+    return new EvalancheError(
+      `${message}: ${detail}`,
+      code,
+      error instanceof Error ? error : undefined,
+    );
+  }
+
+  private describeError(error: unknown): string {
+    if (error instanceof Error) {
+      const candidate = error as Error & {
+        shortMessage?: string;
+        reason?: string;
+        code?: string;
+        info?: { errorName?: string; errorArgs?: unknown[] };
+      };
+      if (candidate.shortMessage) return candidate.shortMessage;
+      if (candidate.reason) return candidate.reason;
+      if (candidate.info?.errorName) return candidate.info.errorName;
+      return candidate.message;
+    }
+    return String(error);
   }
 }

@@ -1,0 +1,69 @@
+# Evalanche Live Smoke Checklist
+
+Use this runbook before cutting an execution-facing release. The goal is to confirm that the real venue or protocol still behaves the way the automated test suite expects.
+
+## Rules
+
+- Use a dedicated funded hot wallet with minimal balances.
+- Prefer preview or tiny notional trades.
+- Do not reuse historical output as proof; rerun the checks on the target release commit.
+- Record tx hashes, order IDs, and reconciliation output for each surface.
+
+## 1. Polymarket
+
+### Read checks
+- `pm_search` returns the expected market.
+- `pm_market` returns outcome tokens.
+- `pm_orderbook` returns bids and asks for the selected outcome.
+- `pm_balances` shows normalized human USDC values plus raw venue values.
+
+### Write checks
+- `pm_preflight` succeeds for a tiny buy or sell.
+- `pm_buy` or `pm_limit_sell` returns `request`, `submission`, `verification`, and `warnings`.
+- `pm_order` confirms venue order status.
+- `pm_reconcile` confirms the resulting position delta or resting-order state.
+- `pm_cancel_order` successfully cancels a resting order if one was created.
+
+## 2. Hyperliquid
+
+### Read checks
+- `hyperliquid_get_markets` returns the target market.
+- `hyperliquid_get_account_state` returns account margin data for the wallet.
+- `hyperliquid_get_positions` returns existing positions, including the empty-account case.
+
+### Write checks
+- `hyperliquid_place_limit_order` returns `request`, `submission`, `verification`, and `warnings`.
+- `hyperliquid_get_order` confirms the order status.
+- `hyperliquid_cancel_order` cancels the order cleanly.
+- `hyperliquid_place_market_order` or `hyperliquid_close_position` confirms fills or flat position state through `hyperliquid_get_positions` and `hyperliquid_get_trades`.
+
+## 3. LI.FI
+
+### Quote checks
+- `lifi_swap_quote` succeeds for a tiny same-chain route.
+- `get_bridge_quote` or `get_bridge_routes` succeeds for a tiny bridge route.
+- Route-strategy inputs survive quoting without malformed payloads.
+
+### Execution checks
+- `lifi_swap` returns `request`, `submission`, `verification`, and `warnings`.
+- `verification` includes a source receipt status and, when applicable, transfer status.
+- Cross-chain execution confirms final transfer state with `check_bridge_status`.
+- If balance verification is available on the current provider, record the before/after token deltas.
+
+## 4. Yield / Vaults
+
+### Liquid staking checks
+- `savax_stake_quote` succeeds for a tiny AVAX amount.
+- `savax_unstake_quote` succeeds and reports whether the path is instant or delayed.
+
+### Vault checks
+- `vault_info` returns asset/share decimals correctly.
+- `vault_deposit_quote` and `vault_withdraw_quote` succeed for a tiny amount.
+- If funding is available, execute a tiny deposit and withdraw and confirm resulting balances or shares.
+
+## Release gate
+
+Do not ship if any of these fail:
+- a write path returns an ad hoc response shape instead of the expected envelope
+- venue or protocol verification disagrees with the local submission result
+- a previously fixed bug reproduces without a failing automated test

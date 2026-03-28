@@ -14,6 +14,8 @@ export type {
   LiFiGasPrices,
   LiFiGasSuggestion,
   LiFiConnection,
+  LiFiExecutionResult,
+  LiFiBalanceSnapshot,
   LiFiRouteOrder,
   LiFiRouteStrategy,
   LiFiTimingStrategy,
@@ -34,6 +36,7 @@ import type {
   LiFiGasPrices,
   LiFiGasSuggestion,
   LiFiConnection,
+  LiFiExecutionResult,
 } from './lifi';
 import { GasZipClient } from './gaszip';
 import type { GasZipParams, GasZipQuote } from './gaszip';
@@ -77,6 +80,10 @@ export class BridgeClient {
     return this.lifi.execute(quote);
   }
 
+  async executeBridgeDetailed(quote: BridgeQuote): Promise<LiFiExecutionResult> {
+    return this.lifi.executeDetailed(quote);
+  }
+
   /**
    * Get a Gas.zip quote for funding gas on a destination chain.
    * @param params - Gas funding parameters
@@ -106,6 +113,10 @@ export class BridgeClient {
 
   async executeSwap(quote: BridgeQuote): Promise<{ txHash: string; status: string }> {
     return this.lifi.execute(quote);
+  }
+
+  async executeSwapDetailed(quote: BridgeQuote): Promise<LiFiExecutionResult> {
+    return this.lifi.executeDetailed(quote);
   }
 
   async getTokens(chainIds: number[]): Promise<Record<string, LiFiToken[]>> {

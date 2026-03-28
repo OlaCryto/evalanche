@@ -22,7 +22,7 @@ import { simulateTransaction as simulate } from './economy/simulation';
 import type { SpendingPolicy, BudgetStatus, PendingTransaction } from './economy/types';
 import type { SimulationResult } from './economy/simulation';
 import { BridgeClient } from './bridge';
-import type { BridgeQuoteParams, BridgeQuote, TransferStatusParams, TransferStatus, LiFiToken, LiFiChain, LiFiTools, LiFiGasPrices, LiFiGasSuggestion, LiFiConnection } from './bridge/lifi';
+import type { BridgeQuoteParams, BridgeQuote, TransferStatusParams, TransferStatus, LiFiToken, LiFiChain, LiFiTools, LiFiGasPrices, LiFiGasSuggestion, LiFiConnection, LiFiExecutionResult } from './bridge/lifi';
 import type { GasZipParams } from './bridge/gaszip';
 import type { DydxClient, HyperliquidClient, PerpMarket } from './perps';
 // Avalanche multi-VM types only (actual imports are lazy to avoid loading
@@ -496,6 +496,12 @@ export class Evalanche {
     return client.executeBridge(quote);
   }
 
+  async bridgeTokensDetailed(params: BridgeQuoteParams): Promise<LiFiExecutionResult> {
+    const client = this.getBridgeClient();
+    const quote = await client.bridge(params);
+    return client.executeBridgeDetailed(quote);
+  }
+
   async checkBridgeStatus(params: TransferStatusParams): Promise<TransferStatus> {
     return this.getBridgeClient().checkTransferStatus(params);
   }
@@ -508,6 +514,12 @@ export class Evalanche {
     const client = this.getBridgeClient();
     const quote = await client.getSwapQuote(params);
     return client.executeSwap(quote);
+  }
+
+  async swapDetailed(params: BridgeQuoteParams): Promise<LiFiExecutionResult> {
+    const client = this.getBridgeClient();
+    const quote = await client.getSwapQuote(params);
+    return client.executeSwapDetailed(quote);
   }
 
   async getTokens(chainIds: number[]): Promise<Record<string, LiFiToken[]>> {
@@ -571,8 +583,7 @@ export class Evalanche {
 
   /**
    * Get or create the Hyperliquid client (lazy-initialized).
-   * Uses the agent wallet address for account reads. Trading methods are scaffolded
-   * but intentionally not implemented until nonce/signing support is added.
+   * Uses the agent wallet for account reads and signed trading actions.
    */
   async hyperliquid(): Promise<HyperliquidClient> {
     if (!this._hyperliquidClient) {

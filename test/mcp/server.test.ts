@@ -156,7 +156,7 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('1.7.9');
+    expect(result.serverInfo.version).toBe('1.8.0');
   });
 
   it('lists tools including new bridge/chain tools', async () => {
@@ -211,6 +211,16 @@ describe('EvalancheMCPServer', () => {
     expect(names).toContain('dydx_cancel_order');
     expect(names).toContain('dydx_close_position');
     expect(names).toContain('dydx_get_orders');
+    expect(names).toContain('hyperliquid_get_markets');
+    expect(names).toContain('hyperliquid_get_account_state');
+    expect(names).toContain('hyperliquid_get_positions');
+    expect(names).toContain('hyperliquid_place_market_order');
+    expect(names).toContain('hyperliquid_place_limit_order');
+    expect(names).toContain('hyperliquid_cancel_order');
+    expect(names).toContain('hyperliquid_close_position');
+    expect(names).toContain('hyperliquid_get_order');
+    expect(names).toContain('hyperliquid_get_orders');
+    expect(names).toContain('hyperliquid_get_trades');
     expect(names).toContain('find_perp_market');
   });
 
@@ -271,6 +281,126 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.venue).toBe('dydx');
     expect(parsed.market.ticker).toBe('ETH-USD');
+  });
+
+  it('handles hyperliquid_place_limit_order with execution envelope', async () => {
+    const mockHyperliquid = {
+      placeLimitOrderDetailed: vi.fn().mockResolvedValue({
+        orderId: '555',
+        status: 'resting',
+        raw: { response: { data: { statuses: [{ resting: { oid: 555 } }] } } },
+      }),
+      getOrder: vi.fn().mockResolvedValue({
+        status: 'open',
+        statusTimestamp: 1234,
+        order: { orderId: '555', market: 'BTC', side: 'BUY' },
+      }),
+    };
+    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
+    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 24,
+      method: 'tools/call',
+      params: {
+        name: 'hyperliquid_place_limit_order',
+        arguments: { market: 'BTC', side: 'BUY', size: '0.1', price: '99000', postOnly: true },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tool).toBe('hyperliquid_place_limit_order');
+    expect(parsed.submission.orderId).toBe('555');
+    expect(parsed.verification.status).toBe('open');
+  });
+
+  it('handles lifi_swap with submission and verification envelope', async () => {
+    const agent = (server as unknown as { agent: { swapDetailed: ReturnType<typeof vi.fn> } }).agent;
+    agent.swapDetailed = vi.fn().mockResolvedValue({
+      txHash: '0xtx',
+      status: 'success',
+      routeId: 'route-1',
+      tool: '1inch',
+      sourceReceiptStatus: 1,
+      transferStatus: null,
+      balances: {
+        fromTokenBefore: { amount: '10' },
+        fromTokenAfter: { amount: '9' },
+        toTokenBefore: { amount: '0' },
+        toTokenAfter: { amount: '1' },
+      },
+      warnings: [],
+    });
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 25,
+      method: 'tools/call',
+      params: {
+        name: 'lifi_swap',
+        arguments: {
+          chainId: 1,
+          fromToken: 'native',
+          toToken: '0xToken',
+          fromAmount: '1',
+        },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tool).toBe('lifi_swap');
+    expect(parsed.submission.txHash).toBe('0xtx');
+    expect(parsed.verification.sourceReceiptStatus).toBe(1);
+  });
+
+  it('handles pm_cancel_order with venue reconciliation envelope', async () => {
+    const mockPolymarket = {
+      cancelOrder: vi.fn().mockResolvedValue(undefined),
+      getBalanceAllowance: vi.fn().mockImplementation(({ asset_type }: { asset_type: string }) => {
+        if (asset_type === 'COLLATERAL') {
+          return Promise.resolve({ balance: 12500000, allowance: 20000000 });
+        }
+        return Promise.resolve({ balance: 5, allowance: 5 });
+      }),
+      getBalances: vi.fn().mockResolvedValue([{ asset: 'token-yes', balance: '5' }]),
+      getOrder: vi.fn().mockResolvedValue({
+        id: 'order-1',
+        status: 'cancelled',
+        tokenId: 'token-yes',
+      }),
+      getOpenOrders: vi.fn().mockResolvedValue([]),
+      getTrades: vi.fn().mockResolvedValue([]),
+      getPositions: vi.fn().mockResolvedValue([]),
+    };
+    const serverAny = server as unknown as {
+      getAuthedClobClient: ReturnType<typeof vi.fn>;
+      getPublicPolymarketClient: ReturnType<typeof vi.fn>;
+    };
+    serverAny.getAuthedClobClient = vi.fn().mockResolvedValue(mockPolymarket);
+    serverAny.getPublicPolymarketClient = vi.fn().mockReturnValue({
+      getMarket: vi.fn().mockResolvedValue({
+        conditionId: 'cond-1',
+        title: 'Test market',
+        tokens: [{ tokenId: 'token-yes', outcome: 'YES' }],
+      }),
+    });
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 26,
+      method: 'tools/call',
+      params: {
+        name: 'pm_cancel_order',
+        arguments: { orderId: 'order-1', conditionId: 'cond-1', outcome: 'YES' },
+      },
+    });
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tool).toBe('pm_cancel_order');
+    expect(parsed.submission.orderId).toBe('order-1');
+    expect(parsed.verification.order.status).toBe('cancelled');
+    expect(parsed.verification.balances.collateral.rawBalance).toBe('12500000');
   });
 
   it('handles get_address', async () => {

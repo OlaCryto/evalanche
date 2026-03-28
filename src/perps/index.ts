@@ -26,9 +26,13 @@ export type { DydxSubaccount } from './dydx/types';
 export { HyperliquidClient } from './hyperliquid/client';
 export type {
   HyperliquidAccountState,
+  HyperliquidExecutionResult,
   HyperliquidMarket,
   HyperliquidMarketMetadata,
+  HyperliquidOpenOrder,
+  HyperliquidOrderStatus,
   HyperliquidPosition,
+  HyperliquidTrade,
 } from './hyperliquid/types';
 
 export type {

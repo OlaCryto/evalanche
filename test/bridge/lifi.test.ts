@@ -9,6 +9,7 @@ vi.stubGlobal('fetch', mockFetch);
 // Mock signer
 const mockSigner = {
   address: '0x1234567890abcdef1234567890abcdef12345678',
+  getAddress: vi.fn().mockResolvedValue('0x1234567890abcdef1234567890abcdef12345678'),
   sendTransaction: vi.fn(),
   signMessage: vi.fn(),
 } as any;
@@ -308,6 +309,47 @@ describe('LiFiClient', () => {
       };
 
       await expect(client.execute(quote)).rejects.toThrow('No transaction request found');
+    });
+
+    it('should return a detailed execution envelope for cross-chain transfers', async () => {
+      mockSigner.sendTransaction.mockResolvedValueOnce({
+        hash: '0xtxhash',
+        wait: vi.fn().mockResolvedValueOnce({ status: 1 }),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'PENDING',
+          substatus: 'WAIT_SOURCE_CONFIRMATIONS',
+        }),
+      });
+
+      const quote = {
+        id: 'test-route',
+        fromChainId: 1,
+        toChainId: 42161,
+        fromToken: NATIVE_TOKEN,
+        toToken: NATIVE_TOKEN,
+        fromAmount: '100000000000000000',
+        toAmount: '99000000000000000',
+        estimatedGas: '2.50',
+        estimatedTime: 120,
+        tool: 'across',
+        rawRoute: {
+          transactionRequest: {
+            to: '0xbridge',
+            data: '0xbridgedata',
+            value: '100000000000000000',
+          },
+        },
+      };
+
+      const result = await client.executeDetailed(quote);
+
+      expect(result.txHash).toBe('0xtxhash');
+      expect(result.routeId).toBe('test-route');
+      expect(result.transferStatus?.status).toBe('PENDING');
+      expect(result.warnings).toContain('No provider available on signer for Li.Fi balance verification.');
     });
   });
 

@@ -363,14 +363,14 @@ const YOUSD = '0x0000000f2eb9f69274678c76222b35eec7588a65'; // Base
 const baseAgent = new Evalanche({ privateKey: '0x...', network: 'base' });
 const { vaults: baseVaults } = baseAgent.defi();
 
-const info = await baseVaults.vaultInfo(YOUSD, 'base');
-// → { name: 'yoUSD', asset: '0x833589f...', totalAssets: '4200000', eip4626: true }
+const info = await baseVaults.vaultInfo(YOUSD);
+// → { name: 'yoUSD', asset: '0x833589f...', assetDecimals: 6, shareDecimals: 18, totalAssets: '4200000', eip4626: true }
 
-const vq = await baseVaults.depositQuote(YOUSD, '1000', 'base');
-// → { shares: '998.1', expectedAssets: '1000' }
+const vq = await baseVaults.depositQuote(YOUSD, '1000');
+// → { shares: '998.1', expectedAssets: '1000', assetDecimals: 6, shareDecimals: 18 }
 
-await baseVaults.deposit(YOUSD, '1000', 'base'); // approve + deposit in one call
-await baseVaults.withdraw(YOUSD, '998.1', 'base'); // redeem shares
+await baseVaults.deposit(YOUSD, '1000'); // approve + deposit in one call
+await baseVaults.withdraw(YOUSD, '998.1'); // redeem shares
 ```
 
 ### Prediction Markets: Polymarket (v1.5.0+)
@@ -378,7 +378,7 @@ await baseVaults.withdraw(YOUSD, '998.1', 'base'); // redeem shares
 Polymarket support is exposed in two ways:
 
 - standalone SDK usage through `PolymarketClient`
-- agent-native usage through MCP tools such as `pm_search`, `pm_buy`, and `pm_sell`
+- agent-native usage through MCP tools such as `pm_search`, `pm_preflight`, `pm_buy`, `pm_sell`, and `pm_reconcile`
 
 ```typescript
 import { Evalanche, PolymarketClient, PolymarketSide } from 'evalanche';
@@ -435,14 +435,17 @@ Supported Polymarket features today:
 - outcome token discovery
 - order book reads and best-bid price lookup
 - estimated fill price from current order book depth
-- balances, positions, open orders, order lookup, and trade history
+- balances, positions, open orders, order lookup, trade history, and order cancellation
+- deterministic preflight checks before writes
+- venue-first reconciliation via `pm_order` and `pm_reconcile`
 - direct buy and sell order placement through the SDK
 - MCP `pm_buy` for market and limit buys
-- MCP `pm_sell` for market sells
+- MCP `pm_sell` for slippage-protected immediate sells
+- MCP `pm_limit_sell` for resting limit sells
+- MCP `pm_cancel_order` for explicit order cancellation
 
 Current limitations:
 
-- `pm_sell` is a market-sell helper, not a limit-sell tool. It converts your target USDC proceeds into token size from the current best bid before submitting.
 - `pm_redeem` is not implemented yet.
 - authenticated trading flows are Polygon-oriented. In practice, agents should hold USDC or outcome tokens on Polygon plus native gas.
 
@@ -481,11 +484,28 @@ const balance = await dydx.getBalance(); // USDC equity
 const hyperliquid = await agent.hyperliquid();
 const hlMarkets = await hyperliquid.getMarkets();
 const hlState = await hyperliquid.getAccountState();
+const hlOrders = await hyperliquid.getOpenOrders();
+const hlFills = await hyperliquid.getTrades();
+
+await hyperliquid.placeLimitOrder({
+  market: 'BTC',
+  side: 'BUY',
+  size: '0.01',
+  price: '95000',
+  postOnly: true,
+});
+
+await hyperliquid.placeMarketOrder({
+  market: 'ETH',
+  side: 'SELL',
+  size: '0.05',
+  reduceOnly: true,
+});
 ```
 
 > **Note:** dYdX requires a mnemonic (not just a private key) because it derives Cosmos keys from BIP-39.
 >
-> **Hyperliquid note:** Hyperliquid is modeled as the second perp venue. HIP-3 markets are represented as Hyperliquid market metadata (`marketClass: 'hip3'`), not as a separate venue. The current adapter supports market/account reads and reserves trading methods for a dedicated nonce/signing pass.
+> **Hyperliquid note:** Hyperliquid is modeled as the second perp venue. HIP-3 markets are represented as Hyperliquid market metadata (`marketClass: 'hip3'`), not as a separate venue. The adapter now supports account reads, open orders, fills, market orders, limit orders, order cancellation, and reduce-only close flows.
 
 ### Platform CLI — Advanced P-Chain Ops (v0.6.0)
 
@@ -646,9 +666,17 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `pm_market` | Get a Polymarket market by condition ID |
 | `pm_positions` | Get Polymarket positions for a wallet |
 | `pm_orderbook` | Get the order book for an outcome token |
+| `pm_balances` | Get venue collateral and token balances |
+| `pm_order` | Reconcile a Polymarket order against venue truth |
+| `pm_cancel_order` | Cancel an open Polymarket order |
+| `pm_open_orders` | List open Polymarket orders |
+| `pm_trades` | List Polymarket venue trades |
 | `pm_approve` | Approve Polymarket collateral spending on Polygon |
+| `pm_preflight` | Run deterministic Polymarket execution preflight |
 | `pm_buy` | Buy YES/NO shares with market or limit orders |
 | `pm_sell` | Market-sell YES/NO shares toward a target USDC proceeds amount |
+| `pm_limit_sell` | Post a resting Polymarket limit sell |
+| `pm_reconcile` | Reconcile Polymarket positions/orders/trades |
 | `pm_redeem` | Reserved for winning-share redemption; not implemented yet |
 | `approve_and_call` | Approve ERC-20 and execute follow-up contract call |
 | `upgrade_proxy` | Execute UUPS `upgradeToAndCall` proxy upgrade |
@@ -661,6 +689,16 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `dydx_cancel_order` | Cancel dYdX order |
 | `dydx_close_position` | Close perp position |
 | `dydx_get_orders` | List dYdX orders |
+| `hyperliquid_get_markets` | List Hyperliquid perp markets |
+| `hyperliquid_get_account_state` | Get Hyperliquid account summary |
+| `hyperliquid_get_positions` | Get open Hyperliquid positions |
+| `hyperliquid_place_market_order` | Place Hyperliquid market order |
+| `hyperliquid_place_limit_order` | Place Hyperliquid limit order |
+| `hyperliquid_cancel_order` | Cancel Hyperliquid order |
+| `hyperliquid_close_position` | Close Hyperliquid position |
+| `hyperliquid_get_order` | Get Hyperliquid order status |
+| `hyperliquid_get_orders` | List Hyperliquid open orders |
+| `hyperliquid_get_trades` | List Hyperliquid fills |
 | `find_perp_market` | Search perp markets across venues |
 | `check_bridge_status` | Poll cross-chain transfer status |
 | `lifi_swap_quote` | Get same-chain DEX swap quote |
@@ -673,8 +711,6 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `lifi_gas_suggestion` | Get gas suggestion for a chain |
 | `lifi_get_connections` | Discover transfer paths between chains |
 | `lifi_compose` | Cross-chain DeFi Composer (bridge + vault/stake/lend) |
-
-`lifi_swap_quote`, `lifi_swap`, and `lifi_compose` also accept `routeStrategy`, `routeOrder`, `preset`, `maxPriceImpact`, and `skipSimulation`.
 | `resolve_agent_registration` | Resolve full ERC-8004 agent registration file |
 | `get_agent_services` | List service endpoints for an agent |
 | `get_agent_wallet` | Get agent payment wallet address |
@@ -689,6 +725,12 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 | `vault_deposit` | Approve + deposit into EIP-4626 vault |
 | `vault_withdraw_quote` | Preview redeem shares |
 | `vault_withdraw` | Redeem shares from vault |
+
+`lifi_swap_quote`, `lifi_swap`, and `lifi_compose` also accept `routeStrategy`, `routeOrder`, `preset`, `maxPriceImpact`, and `skipSimulation`.
+
+Execution-oriented tools (`pm_*`, `hyperliquid_*`, `lifi_swap`, `lifi_compose`) return stable envelopes with `request`, `submission`, `verification`, and `warnings`.
+
+For live operator validation, use the runbook in [docs/live-smoke-checklist.md](/Users/jaack/Desktop/Github/evalanche/docs/live-smoke-checklist.md).
 
 ### Environment Variables
 
@@ -838,7 +880,14 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.7.9 (current)
+### v1.8.0 (current)
+- **Execution certification**
+- Hyperliquid now has a real trade surface in both the SDK and MCP: market orders, limit orders, cancel, close, orders, and fills
+- LI.FI execution paths now return structured submission and verification envelopes, including tx hashes, receipt status, transfer status, and best-effort balance deltas
+- EIP-4626 vault reads/quotes now distinguish asset decimals from share decimals, and quote/info failures surface as typed integration errors
+- a live smoke runbook now covers Polymarket, Hyperliquid, LI.FI, and vault flows for release certification
+
+### v1.7.9
 - **Polymarket buy unit normalization**
 - Polymarket collateral balances/allowances are now normalized from raw 6-decimal USDC units before preflight compares them to human `amountUSDC`
 - `pm_preflight` and `pm_buy` now correctly reject microUSDC-funded wallets before attempting a venue order instead of claiming the wallet is funded

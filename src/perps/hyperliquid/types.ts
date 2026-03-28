@@ -32,3 +32,46 @@ export interface HyperliquidAccountState {
   positions: HyperliquidPosition[];
 }
 
+export interface HyperliquidOpenOrder {
+  orderId: string;
+  market: string;
+  side: 'BUY' | 'SELL';
+  price: string;
+  size: string;
+  originalSize: string;
+  reduceOnly: boolean;
+  timeInForce?: string | null;
+  timestamp: number;
+  raw?: unknown;
+}
+
+export interface HyperliquidTrade {
+  orderId: string;
+  market: string;
+  side: 'BUY' | 'SELL';
+  price: string;
+  size: string;
+  startPosition: string;
+  closedPnl: string;
+  fee: string;
+  feeToken: string;
+  crossed: boolean;
+  hash: string;
+  timestamp: number;
+  raw?: unknown;
+}
+
+export interface HyperliquidOrderStatus {
+  status: string;
+  statusTimestamp?: number;
+  order?: HyperliquidOpenOrder;
+  raw?: unknown;
+}
+
+export interface HyperliquidExecutionResult {
+  orderId?: string;
+  status: 'resting' | 'filled' | 'waiting' | 'submitted' | 'canceled';
+  filledSize?: string;
+  averageFillPrice?: string;
+  raw: unknown;
+}

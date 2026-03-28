@@ -8,7 +8,7 @@
 import type { AgentSigner } from '../wallet/signer';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
 import { safeFetch } from '../utils/safe-fetch';
-import { parseUnits } from 'ethers';
+import { Contract, formatUnits, parseUnits } from 'ethers';
 
 const LIFI_API = 'https://li.quest/v1';
 
@@ -66,6 +66,31 @@ export interface LiFiConnection {
   toChainId: number;
   fromTokens: LiFiToken[];
   toTokens: LiFiToken[];
+}
+
+export interface LiFiBalanceSnapshot {
+  token: string;
+  decimals: number;
+  rawAmount: string;
+  amount: string;
+}
+
+export interface LiFiExecutionResult {
+  txHash: string;
+  status: string;
+  routeId: string;
+  tool: string;
+  fromChainId: number;
+  toChainId: number;
+  sourceReceiptStatus?: number;
+  transferStatus?: TransferStatus;
+  balances?: {
+    fromTokenBefore?: LiFiBalanceSnapshot;
+    fromTokenAfter?: LiFiBalanceSnapshot;
+    toTokenBefore?: LiFiBalanceSnapshot;
+    toTokenAfter?: LiFiBalanceSnapshot;
+  };
+  warnings: string[];
 }
 
 export type LiFiRouteOrder = 'FASTEST' | 'CHEAPEST';
@@ -286,6 +311,11 @@ export class LiFiClient {
    * @returns Transaction hash and status
    */
   async execute(quote: BridgeQuote): Promise<{ txHash: string; status: string }> {
+    const detailed = await this.executeDetailed(quote);
+    return { txHash: detailed.txHash, status: detailed.status };
+  }
+
+  async executeDetailed(quote: BridgeQuote): Promise<LiFiExecutionResult> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rawRoute = quote.rawRoute as any;
 
@@ -298,6 +328,9 @@ export class LiFiClient {
       );
     }
 
+    const warnings: string[] = [];
+    const balanceSnapshots = await this.captureExecutionBalances(quote, warnings);
+
     try {
       const tx = await this.signer.sendTransaction({
         to: txRequest.to,
@@ -308,9 +341,25 @@ export class LiFiClient {
       });
 
       const receipt = await tx.wait();
+      const verification = await this.verifyExecution(quote, tx.hash, warnings);
+      const postBalances = await this.captureExecutionBalances(quote, warnings);
+
       return {
         txHash: tx.hash,
         status: receipt?.status === 1 ? 'success' : 'failed',
+        routeId: quote.id,
+        tool: quote.tool,
+        fromChainId: quote.fromChainId,
+        toChainId: quote.toChainId,
+        sourceReceiptStatus: typeof receipt?.status === 'number' ? receipt.status : undefined,
+        transferStatus: verification ?? undefined,
+        balances: {
+          fromTokenBefore: balanceSnapshots.fromToken,
+          fromTokenAfter: postBalances.fromToken,
+          toTokenBefore: balanceSnapshots.toToken,
+          toTokenAfter: postBalances.toToken,
+        },
+        warnings,
       };
     } catch (error) {
       throw new EvalancheError(
@@ -540,6 +589,99 @@ export class LiFiClient {
     } catch {
       return 18;
     }
+  }
+
+  private async verifyExecution(
+    quote: BridgeQuote,
+    txHash: string,
+    warnings: string[],
+  ): Promise<TransferStatus | null> {
+    if (quote.fromChainId === quote.toChainId) return null;
+
+    try {
+      return await this.checkTransferStatus({
+        txHash,
+        bridge: quote.tool,
+        fromChainId: quote.fromChainId,
+        toChainId: quote.toChainId,
+      });
+    } catch (error) {
+      warnings.push(
+        `Li.Fi transfer status verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
+  private async captureExecutionBalances(
+    quote: BridgeQuote,
+    warnings: string[],
+  ): Promise<{ fromToken?: LiFiBalanceSnapshot; toToken?: LiFiBalanceSnapshot }> {
+    if (!this.signer.provider) {
+      warnings.push('No provider available on signer for Li.Fi balance verification.');
+      return {};
+    }
+
+    try {
+      const network = await this.signer.provider.getNetwork();
+      if (Number(network.chainId) !== quote.fromChainId) {
+        warnings.push(
+          `Signer provider is on chain ${String(network.chainId)}, but Li.Fi execution expects source chain ${quote.fromChainId}.`,
+        );
+        return {};
+      }
+    } catch (error) {
+      warnings.push(
+        `Unable to read signer network for Li.Fi balance verification: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return {};
+    }
+
+    const [fromToken, toToken] = await Promise.all([
+      this.readTokenBalance(quote.fromChainId, quote.fromToken).catch((error) => {
+        warnings.push(`Unable to snapshot source token balance: ${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+      }),
+      quote.fromChainId === quote.toChainId
+        ? this.readTokenBalance(quote.toChainId, quote.toToken).catch((error) => {
+          warnings.push(`Unable to snapshot destination token balance: ${error instanceof Error ? error.message : String(error)}`);
+          return undefined;
+        })
+        : Promise.resolve(undefined),
+    ]);
+
+    return { fromToken, toToken };
+  }
+
+  private async readTokenBalance(chainId: number, tokenAddress: string): Promise<LiFiBalanceSnapshot> {
+    if (!this.signer.provider) {
+      throw new Error('Signer has no provider');
+    }
+    const address = await this.signer.getAddress();
+
+    if (tokenAddress === NATIVE_TOKEN) {
+      const raw = await this.signer.provider.getBalance(address);
+      return {
+        token: tokenAddress,
+        decimals: 18,
+        rawAmount: raw.toString(),
+        amount: formatUnits(raw, 18),
+      };
+    }
+
+    const token = await this.getToken(chainId, tokenAddress);
+    const contract = new Contract(
+      tokenAddress,
+      ['function balanceOf(address owner) view returns (uint256)'],
+      this.signer.provider,
+    );
+    const raw = await contract.balanceOf(address) as bigint;
+    return {
+      token: tokenAddress,
+      decimals: token.decimals,
+      rawAmount: raw.toString(),
+      amount: formatUnits(raw, token.decimals),
+    };
   }
 
   private resolveRouteOptions(params: BridgeQuoteParams): LiFiResolvedRouteOptions {

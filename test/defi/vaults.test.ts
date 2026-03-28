@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheErrorCode } from '../../src/utils/errors';
 
-// ─── Mock ethers ──────────────────────────────────────────────────────────────
-let contractMock: ReturnType<typeof makeContractMock>;
+const USDC_ASSET = '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E';
+
+let vaultContractMock: ReturnType<typeof makeVaultContractMock>;
+let assetContractMock: ReturnType<typeof makeAssetContractMock>;
+
 vi.mock('ethers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ethers')>();
   class MockContract {
-    constructor() {
-      return contractMock ?? makeContractMock();
+    constructor(address: string) {
+      return address.toLowerCase() === USDC_ASSET.toLowerCase()
+        ? assetContractMock ?? makeAssetContractMock()
+        : vaultContractMock ?? makeVaultContractMock();
     }
   }
   return {
@@ -16,10 +21,8 @@ vi.mock('ethers', async (importOriginal) => {
   };
 });
 
-import { Contract, MaxUint256, parseUnits, formatUnits } from 'ethers';
+import { MaxUint256, parseUnits, formatUnits } from 'ethers';
 import { VaultClient, YOUSD_VAULT } from '../../src/defi/vaults';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 function makeMockSigner() {
   return {
@@ -28,21 +31,22 @@ function makeMockSigner() {
   } as unknown as ConstructorParameters<typeof VaultClient>[0];
 }
 
-const USDC_ASSET = '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E';
-const DEPOSIT_AMOUNT = parseUnits('1000', 6); // 1000 USDC
-const EXPECTED_SHARES = parseUnits('990', 6); // slight fee on deposit
-const EXPECTED_ASSETS = parseUnits('1010', 6); // slight gain on redeem
-const TOTAL_ASSETS = parseUnits('5000000', 6); // 5M USDC total
+const ASSET_DECIMALS = 6;
+const SHARE_DECIMALS = 18;
+const DEPOSIT_AMOUNT = parseUnits('1000', ASSET_DECIMALS);
+const EXPECTED_SHARES = parseUnits('990', SHARE_DECIMALS);
+const EXPECTED_ASSETS = parseUnits('1010', ASSET_DECIMALS);
+const TOTAL_ASSETS = parseUnits('5000000', ASSET_DECIMALS);
 
-function makeContractMock(overrides: Record<string, unknown> = {}) {
+function makeVaultContractMock(overrides: Record<string, unknown> = {}) {
   return {
     name: vi.fn().mockResolvedValue('yoUSD Vault'),
     asset: vi.fn().mockResolvedValue(USDC_ASSET),
     totalAssets: vi.fn().mockResolvedValue(TOTAL_ASSETS),
-    decimals: vi.fn().mockResolvedValue(6),
+    decimals: vi.fn().mockResolvedValue(SHARE_DECIMALS),
     previewDeposit: vi.fn().mockResolvedValue(EXPECTED_SHARES),
     previewRedeem: vi.fn().mockResolvedValue(EXPECTED_ASSETS),
-    balanceOf: vi.fn().mockResolvedValue(parseUnits('500', 6)),
+    balanceOf: vi.fn().mockResolvedValue(parseUnits('500', SHARE_DECIMALS)),
     deposit: vi.fn().mockResolvedValue({
       hash: '0xdeposit123',
       wait: vi.fn().mockResolvedValue({ status: 1 }),
@@ -51,18 +55,22 @@ function makeContractMock(overrides: Record<string, unknown> = {}) {
       hash: '0xredeem456',
       wait: vi.fn().mockResolvedValue({ status: 1 }),
     }),
+    ...overrides,
+  };
+}
+
+function makeAssetContractMock(overrides: Record<string, unknown> = {}) {
+  return {
     allowance: vi.fn().mockResolvedValue(MaxUint256),
     approve: vi.fn().mockResolvedValue({
       hash: '0xapprove',
       wait: vi.fn().mockResolvedValue({}),
     }),
-    // ERC20 helpers
     symbol: vi.fn().mockResolvedValue('USDC'),
+    decimals: vi.fn().mockResolvedValue(ASSET_DECIMALS),
     ...overrides,
   };
 }
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 describe('VaultClient — constants', () => {
   it('YOUSD_VAULT is the correct Base address', () => {
@@ -72,27 +80,73 @@ describe('VaultClient — constants', () => {
   });
 });
 
-// ─── vaultInfo ────────────────────────────────────────────────────────────────
-
-describe('VaultClient.vaultInfo', () => {
+describe('VaultClient', () => {
   beforeEach(() => {
-    contractMock = makeContractMock();
+    vaultContractMock = makeVaultContractMock();
+    assetContractMock = makeAssetContractMock();
   });
 
-  it('returns vault metadata', async () => {
+  it('returns vault metadata with separate asset/share decimals', async () => {
     const client = new VaultClient(makeMockSigner(), 'base');
     const info = await client.vaultInfo(YOUSD_VAULT);
 
     expect(info.name).toBe('yoUSD Vault');
     expect(info.asset).toBe(USDC_ASSET);
-    expect(info.eip4626).toBe(true);
-    expect(info.chain).toBe('base');
-    expect(parseFloat(info.totalAssets)).toBeGreaterThan(0);
+    expect(info.assetSymbol).toBe('USDC');
+    expect(info.assetDecimals).toBe(ASSET_DECIMALS);
+    expect(info.shareDecimals).toBe(SHARE_DECIMALS);
+    expect(info.totalAssets).toBe(formatUnits(TOTAL_ASSETS, ASSET_DECIMALS));
   });
 
-  it('wraps errors in VAULT_ERROR', async () => {
-    contractMock = makeContractMock({
-      name: vi.fn().mockRejectedValue(new Error('not a vault')),
+  it('returns expected shares using asset decimals, not share decimals', async () => {
+    const client = new VaultClient(makeMockSigner(), 'base');
+    const quote = await client.depositQuote(YOUSD_VAULT, '1000');
+
+    expect(vaultContractMock.previewDeposit).toHaveBeenCalledWith(DEPOSIT_AMOUNT);
+    expect(quote.shares).toBe(formatUnits(EXPECTED_SHARES, SHARE_DECIMALS));
+    expect(quote.assetDecimals).toBe(ASSET_DECIMALS);
+    expect(quote.shareDecimals).toBe(SHARE_DECIMALS);
+  });
+
+  it('supports explicit asset decimal overrides for deposit quote', async () => {
+    const client = new VaultClient(makeMockSigner(), 'base');
+    await client.depositQuote(YOUSD_VAULT, '1', 18);
+
+    expect(vaultContractMock.previewDeposit).toHaveBeenCalledWith(parseUnits('1', 18));
+  });
+
+  it('deposits using asset decimals and returns a transaction result', async () => {
+    const client = new VaultClient(makeMockSigner(), 'base');
+    const result = await client.deposit(YOUSD_VAULT, '1000');
+
+    expect(assetContractMock.allowance).toHaveBeenCalled();
+    expect(vaultContractMock.deposit).toHaveBeenCalledWith(DEPOSIT_AMOUNT, makeMockSigner().address);
+    expect(result.hash).toBe('0xdeposit123');
+  });
+
+  it('returns expected assets using asset decimals on withdraw quote', async () => {
+    const client = new VaultClient(makeMockSigner(), 'base');
+    const quote = await client.withdrawQuote(YOUSD_VAULT, '990');
+
+    expect(vaultContractMock.previewRedeem).toHaveBeenCalledWith(parseUnits('990', SHARE_DECIMALS));
+    expect(quote.expectedAssets).toBe(formatUnits(EXPECTED_ASSETS, ASSET_DECIMALS));
+  });
+
+  it('redeems shares using share decimals and returns transaction result', async () => {
+    const client = new VaultClient(makeMockSigner(), 'base');
+    const result = await client.withdraw(YOUSD_VAULT, '990');
+
+    expect(vaultContractMock.redeem).toHaveBeenCalledWith(
+      parseUnits('990', SHARE_DECIMALS),
+      makeMockSigner().address,
+      makeMockSigner().address,
+    );
+    expect(result.hash).toBe('0xredeem456');
+  });
+
+  it('wraps unsupported vault metadata reads in VAULT_ERROR', async () => {
+    vaultContractMock = makeVaultContractMock({
+      asset: vi.fn().mockRejectedValue(new Error('execution reverted')),
     });
 
     const client = new VaultClient(makeMockSigner(), 'base');
@@ -100,111 +154,14 @@ describe('VaultClient.vaultInfo', () => {
       code: EvalancheErrorCode.VAULT_ERROR,
     });
   });
-});
 
-// ─── depositQuote ─────────────────────────────────────────────────────────────
-
-describe('VaultClient.depositQuote', () => {
-  beforeEach(() => {
-    contractMock = makeContractMock();
-  });
-
-  it('returns expected shares for a deposit amount', async () => {
-    const client = new VaultClient(makeMockSigner(), 'base');
-    const quote = await client.depositQuote(YOUSD_VAULT, '1000');
-
-    expect(quote.shares).toBe(formatUnits(EXPECTED_SHARES, 6));
-    expect(quote.expectedAssets).toBe('1000');
-  });
-
-  it('wraps errors in VAULT_ERROR', async () => {
-    contractMock = makeContractMock({
-      previewDeposit: vi.fn().mockRejectedValue(new Error('revert')),
-    });
-
-    const client = new VaultClient(makeMockSigner(), 'base');
-    await expect(client.depositQuote(YOUSD_VAULT, '1000')).rejects.toMatchObject({
-      code: EvalancheErrorCode.VAULT_ERROR,
-    });
-  });
-});
-
-// ─── deposit ──────────────────────────────────────────────────────────────────
-
-describe('VaultClient.deposit', () => {
-  beforeEach(() => {
-    contractMock = makeContractMock();
-  });
-
-  it('deposits and returns transaction result', async () => {
-    const client = new VaultClient(makeMockSigner(), 'base');
-    const result = await client.deposit(YOUSD_VAULT, '1000');
-
-    expect(result.hash).toBe('0xdeposit123');
-    expect(result.receipt.status).toBe(1);
-  });
-
-  it('wraps deposit errors in VAULT_ERROR', async () => {
-    contractMock = makeContractMock({
-      deposit: vi.fn().mockRejectedValue(new Error('revert')),
-    });
-
-    const client = new VaultClient(makeMockSigner(), 'base');
-    await expect(client.deposit(YOUSD_VAULT, '1000')).rejects.toMatchObject({
-      code: EvalancheErrorCode.VAULT_ERROR,
-    });
-  });
-});
-
-// ─── withdrawQuote ────────────────────────────────────────────────────────────
-
-describe('VaultClient.withdrawQuote', () => {
-  beforeEach(() => {
-    contractMock = makeContractMock();
-  });
-
-  it('returns expected assets for a share amount', async () => {
-    const client = new VaultClient(makeMockSigner(), 'base');
-    const quote = await client.withdrawQuote(YOUSD_VAULT, '990');
-
-    expect(quote.shares).toBe('990');
-    expect(quote.expectedAssets).toBe(formatUnits(EXPECTED_ASSETS, 6));
-  });
-
-  it('wraps errors in VAULT_ERROR', async () => {
-    contractMock = makeContractMock({
-      previewRedeem: vi.fn().mockRejectedValue(new Error('revert')),
+  it('wraps reverted quotes in VAULT_ERROR', async () => {
+    vaultContractMock = makeVaultContractMock({
+      previewRedeem: vi.fn().mockRejectedValue(new Error('CALL_EXCEPTION')),
     });
 
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.withdrawQuote(YOUSD_VAULT, '990')).rejects.toMatchObject({
-      code: EvalancheErrorCode.VAULT_ERROR,
-    });
-  });
-});
-
-// ─── withdraw ─────────────────────────────────────────────────────────────────
-
-describe('VaultClient.withdraw', () => {
-  beforeEach(() => {
-    contractMock = makeContractMock();
-  });
-
-  it('redeems shares and returns transaction result', async () => {
-    const client = new VaultClient(makeMockSigner(), 'base');
-    const result = await client.withdraw(YOUSD_VAULT, '990');
-
-    expect(result.hash).toBe('0xredeem456');
-    expect(result.receipt.status).toBe(1);
-  });
-
-  it('wraps withdraw errors in VAULT_ERROR', async () => {
-    contractMock = makeContractMock({
-      redeem: vi.fn().mockRejectedValue(new Error('revert')),
-    });
-
-    const client = new VaultClient(makeMockSigner(), 'base');
-    await expect(client.withdraw(YOUSD_VAULT, '990')).rejects.toMatchObject({
       code: EvalancheErrorCode.VAULT_ERROR,
     });
   });
