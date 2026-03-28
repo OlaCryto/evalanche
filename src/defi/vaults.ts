@@ -52,8 +52,22 @@ export class VaultClient {
     return new Contract(tokenAddress, ERC20_ABI, this.signer);
   }
 
+  private async ensureVaultAvailable(vaultAddress: string): Promise<void> {
+    const provider = this.signer.provider as { getCode?: (address: string) => Promise<string> } | undefined;
+    if (!provider?.getCode) return;
+
+    const code = await provider.getCode(vaultAddress);
+    if (code === '0x') {
+      throw new EvalancheError(
+        `No vault contract is deployed at ${vaultAddress} on ${this.chain}. The vault may exist on a different chain.`,
+        EvalancheErrorCode.CONTRACT_NOT_DEPLOYED,
+      );
+    }
+  }
+
   async vaultInfo(vaultAddress: string): Promise<VaultInfo> {
     try {
+      await this.ensureVaultAvailable(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
 
       return {
@@ -78,6 +92,7 @@ export class VaultClient {
     assetDecimalsOverride?: number,
   ): Promise<VaultQuote> {
     try {
+      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
@@ -101,6 +116,7 @@ export class VaultClient {
     assetDecimalsOverride?: number,
   ): Promise<TransactionResult> {
     try {
+      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
@@ -128,6 +144,7 @@ export class VaultClient {
     shareDecimalsOverride?: number,
   ): Promise<VaultQuote> {
     try {
+      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
@@ -151,6 +168,7 @@ export class VaultClient {
     shareDecimalsOverride?: number,
   ): Promise<TransactionResult> {
     try {
+      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
@@ -199,6 +217,7 @@ export class VaultClient {
   }
 
   private wrapVaultError(message: string, error: unknown, code: EvalancheErrorCode): EvalancheError {
+    if (error instanceof EvalancheError) return error;
     const detail = this.describeError(error);
     return new EvalancheError(
       `${message}: ${detail}`,

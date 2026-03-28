@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheMCPServer } from '../../src/mcp/server';
+import { YOUSD_VAULT } from '../../src/defi/vaults';
+import { EvalancheErrorCode } from '../../src/utils/errors';
 
 const mockProvider = {
   getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')),
@@ -114,6 +116,7 @@ vi.mock('ethers', () => {
     Wallet: MockWallet,
     HDNodeWallet: MockHDNodeWallet,
     Contract: MockContract,
+    getAddress: vi.fn((value: string) => value),
     parseEther: vi.fn((v: string) => BigInt(Math.floor(parseFloat(v) * 1e18))),
     parseUnits: vi.fn((v: string, d: number) => BigInt(Math.floor(parseFloat(v) * (10 ** d)))),
     formatEther: vi.fn((v: bigint) => (Number(v) / 1e18).toString()),
@@ -157,6 +160,85 @@ describe('EvalancheMCPServer', () => {
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
     expect(result.serverInfo.version).toBe('1.8.0');
+  });
+
+  it('auto-routes yoUSD vault_info to Base without manual network switching', async () => {
+    const vaultInfo = { address: YOUSD_VAULT, chain: 'base', name: 'yoUSD Vault' };
+    const baseAgent = {
+      defi: vi.fn().mockReturnValue({
+        vaults: { vaultInfo: vi.fn().mockResolvedValue(vaultInfo) },
+      }),
+    };
+    const agent = (server as unknown as { agent: { switchNetwork: ReturnType<typeof vi.fn> } }).agent;
+    agent.switchNetwork = vi.fn().mockReturnValue(baseAgent);
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: { name: 'vault_info', arguments: { vaultAddress: YOUSD_VAULT } },
+    });
+
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(agent.switchNetwork).toHaveBeenCalledWith('base');
+    expect(parsed.resolution.network).toBe('base');
+    expect(parsed.info.name).toBe('yoUSD Vault');
+  });
+
+  it('fails clearly when an explicit vault network conflicts with canonical routing', async () => {
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 4,
+      method: 'tools/call',
+      params: {
+        name: 'vault_info',
+        arguments: { vaultAddress: YOUSD_VAULT, network: 'avalanche' },
+      },
+    });
+
+    const result = res.result as { isError: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('registered on base, not avalanche');
+  });
+
+  it('fails clearly when sAVAX is requested on the wrong explicit chain', async () => {
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 5,
+      method: 'tools/call',
+      params: {
+        name: 'savax_unstake_quote',
+        arguments: { shares: '1', network: 'base' },
+      },
+    });
+
+    const result = res.result as { isError: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('registered on avalanche, not base');
+  });
+
+  it('routes sAVAX quotes to Avalanche and preserves the quote envelope', async () => {
+    const quote = { avaxOut: '1.0', expectedOutput: '1.0', minOutput: '0.99', poolBalance: '100', isInstant: true };
+    const agent = (server as unknown as { agent: { defi: ReturnType<typeof vi.fn>; switchNetwork: ReturnType<typeof vi.fn> } }).agent;
+    agent.defi = vi.fn().mockReturnValue({
+      staking: { sAvaxUnstakeQuote: vi.fn().mockResolvedValue(quote) },
+    });
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 6,
+      method: 'tools/call',
+      params: {
+        name: 'savax_unstake_quote',
+        arguments: { shares: '1', network: 'avalanche' },
+      },
+    });
+
+    const result = res.result as { content: Array<{ text: string }> };
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.resolution.network).toBe('avalanche');
+    expect(parsed.quote.isInstant).toBe(true);
   });
 
   it('lists tools including new bridge/chain tools', async () => {

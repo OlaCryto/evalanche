@@ -1,11 +1,12 @@
 import { Evalanche } from '../agent';
 import type { EvalancheConfig } from '../agent';
+import { createDefaultDappRegistry, resolveDappTarget } from '../defi/dapp-registry';
 import { IdentityResolver } from '../identity/resolver';
 import { ArenaSwapClient } from '../swap/arena';
 import { approveAndCall, upgradeProxy } from '../utils/contract-helpers';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
-import { getNetworkConfig } from '../utils/networks';
-import { getAllChains } from '../utils/chains';
+import { getNetworkConfig, type ChainName } from '../utils/networks';
+import { getAllChains, getChainById } from '../utils/chains';
 import { NATIVE_TOKEN } from '../bridge/lifi';
 import { safeFetch } from '../utils/safe-fetch';
 import { CoinGeckoClient } from '../market/coingecko';
@@ -1050,6 +1051,7 @@ const TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         amountAvax: { type: 'string', description: 'Amount of AVAX to stake (human-readable, e.g. "10")' },
+        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
       },
       required: ['amountAvax'],
     },
@@ -1062,6 +1064,7 @@ const TOOLS: MCPTool[] = [
       properties: {
         amountAvax: { type: 'string', description: 'Amount of AVAX to stake (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
+        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
       },
       required: ['amountAvax'],
     },
@@ -1074,6 +1077,7 @@ const TOOLS: MCPTool[] = [
       properties: {
         shares: { type: 'string', description: 'Amount of sAVAX to redeem (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
+        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
       },
       required: ['shares'],
     },
@@ -1087,6 +1091,7 @@ const TOOLS: MCPTool[] = [
         shares: { type: 'string', description: 'Amount of sAVAX to redeem (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
         forceDelayed: { type: 'boolean', description: 'Force delayed unstake even if instant is available (default: false)' },
+        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
       },
       required: ['shares'],
     },
@@ -1100,6 +1105,7 @@ const TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         vaultAddress: { type: 'string', description: 'Vault contract address' },
+        network: { type: 'string', description: 'Optional network override for vault resolution' },
       },
       required: ['vaultAddress'],
     },
@@ -1113,6 +1119,7 @@ const TOOLS: MCPTool[] = [
         vaultAddress: { type: 'string', description: 'Vault contract address' },
         assetAmount: { type: 'string', description: 'Amount of underlying asset (human-readable)' },
         assetDecimals: { type: 'number', description: 'Decimals of the underlying asset (default: 6)' },
+        network: { type: 'string', description: 'Optional network override for vault resolution' },
       },
       required: ['vaultAddress', 'assetAmount'],
     },
@@ -1127,6 +1134,7 @@ const TOOLS: MCPTool[] = [
         assetAmount: { type: 'string', description: 'Amount of underlying asset to deposit (human-readable)' },
         assetDecimals: { type: 'number', description: 'Decimals of the underlying asset (default: 6)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
+        network: { type: 'string', description: 'Optional network override for vault resolution' },
       },
       required: ['vaultAddress', 'assetAmount'],
     },
@@ -1140,6 +1148,7 @@ const TOOLS: MCPTool[] = [
         vaultAddress: { type: 'string', description: 'Vault contract address' },
         shareAmount: { type: 'string', description: 'Amount of vault shares to redeem (human-readable)' },
         shareDecimals: { type: 'number', description: 'Decimals of the vault shares (default: 6)' },
+        network: { type: 'string', description: 'Optional network override for vault resolution' },
       },
       required: ['vaultAddress', 'shareAmount'],
     },
@@ -1154,6 +1163,7 @@ const TOOLS: MCPTool[] = [
         shareAmount: { type: 'string', description: 'Amount of vault shares to redeem (human-readable)' },
         shareDecimals: { type: 'number', description: 'Decimals of the vault shares (default: 6)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
+        network: { type: 'string', description: 'Optional network override for vault resolution' },
       },
       required: ['vaultAddress', 'shareAmount'],
     },
@@ -1478,6 +1488,7 @@ export class EvalancheMCPServer {
   private polymarket: PolymarketClient | null = null;
   private authedClobClient: any = null;
   private lastPolymarketNonce = 0;
+  private dappRegistry = createDefaultDappRegistry();
 
 
   constructor(config: EvalancheConfig) {
@@ -1498,6 +1509,41 @@ export class EvalancheMCPServer {
     this.interopResolver = new InteropIdentityResolver(this.agent.provider);
     this.polymarket = null;
     this.authedClobClient = null;
+  }
+
+  private getCurrentNetworkAlias(): ChainName {
+    const configuredNetwork = this.config.network ?? 'avalanche';
+    if (typeof configuredNetwork === 'string') return configuredNetwork;
+    const chain = getChainById(getNetworkConfig(configuredNetwork).chainId);
+    return (chain?.shortName === 'avax' ? 'avalanche' : chain?.shortName ?? 'ethereum') as ChainName;
+  }
+
+  private getEvalancheForNetwork(network: ChainName): Evalanche {
+    return this.getCurrentNetworkAlias() === network
+      ? this.agent
+      : this.agent.switchNetwork(network);
+  }
+
+  private resolveVaultTarget(vaultAddress: string, explicitNetwork?: string) {
+    return resolveDappTarget(
+      {
+        target: vaultAddress,
+        explicitNetwork,
+        currentNetwork: this.getCurrentNetworkAlias(),
+      },
+      this.dappRegistry,
+    );
+  }
+
+  private resolveSavaxTarget(explicitNetwork?: string) {
+    return resolveDappTarget(
+      {
+        target: 'savax',
+        explicitNetwork,
+        currentNetwork: this.getCurrentNetworkAlias(),
+      },
+      this.dappRegistry,
+    );
   }
 
   private getPolymarket(): PolymarketClient {
@@ -3450,23 +3496,43 @@ export class EvalancheMCPServer {
         // ── DeFi: Liquid Staking ──────────────────────────────────────────
 
         case 'savax_stake_quote': {
-          const defi = this.agent.defi();
-          result = await defi.staking.sAvaxStakeQuote(args.amountAvax as string);
+          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const quote = await defi.staking.sAvaxStakeQuote(args.amountAvax as string);
+          result = {
+            request: {
+              amountAvax: args.amountAvax as string,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            quote,
+          };
           break;
         }
 
         case 'savax_stake': {
-          const defi = this.agent.defi();
+          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
           const txResult = await defi.staking.sAvaxStake(
             args.amountAvax as string,
             args.slippageBps as number | undefined,
           );
-          result = { hash: txResult.hash, status: txResult.receipt.status };
+          result = {
+            request: {
+              amountAvax: args.amountAvax as string,
+              slippageBps: args.slippageBps as number | undefined,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            hash: txResult.hash,
+            status: txResult.receipt.status,
+          };
           break;
         }
 
         case 'savax_unstake_quote': {
-          const defi = this.agent.defi();
+          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
           const quote = await defi.staking.sAvaxUnstakeQuote(
             args.shares as string,
             args.slippageBps as number | undefined,
@@ -3475,14 +3541,17 @@ export class EvalancheMCPServer {
             request: {
               shares: args.shares as string,
               slippageBps: args.slippageBps as number | undefined,
+              network: args.network as string | undefined,
             },
+            resolution: resolved,
             quote,
           };
           break;
         }
 
         case 'savax_unstake': {
-          const defi = this.agent.defi();
+          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
           const forceDelayed = (args.forceDelayed as boolean) ?? false;
           let txResult;
           if (forceDelayed) {
@@ -3493,57 +3562,135 @@ export class EvalancheMCPServer {
               args.slippageBps as number | undefined,
             );
           }
-          result = { hash: txResult.hash, status: txResult.receipt.status };
+          result = {
+            request: {
+              shares: args.shares as string,
+              slippageBps: args.slippageBps as number | undefined,
+              forceDelayed,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            hash: txResult.hash,
+            status: txResult.receipt.status,
+          };
           break;
         }
 
         // ── DeFi: EIP-4626 Vaults ────────────────────────────────────────
 
         case 'vault_info': {
-          const defi = this.agent.defi();
-          result = await defi.vaults.vaultInfo(args.vaultAddress as string);
+          const resolved = this.resolveVaultTarget(
+            args.vaultAddress as string,
+            args.network as string | undefined,
+          );
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const info = await defi.vaults.vaultInfo(resolved.address);
+          result = {
+            request: {
+              vaultAddress: args.vaultAddress as string,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            info,
+          };
           break;
         }
 
         case 'vault_deposit_quote': {
-          const defi = this.agent.defi();
-          result = await defi.vaults.depositQuote(
+          const resolved = this.resolveVaultTarget(
             args.vaultAddress as string,
+            args.network as string | undefined,
+          );
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const quote = await defi.vaults.depositQuote(
+            resolved.address,
             args.assetAmount as string,
             args.assetDecimals as number | undefined,
           );
+          result = {
+            request: {
+              vaultAddress: args.vaultAddress as string,
+              assetAmount: args.assetAmount as string,
+              assetDecimals: args.assetDecimals as number | undefined,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            quote,
+          };
           break;
         }
 
         case 'vault_deposit': {
-          const defi = this.agent.defi();
-          const txResult = await defi.vaults.deposit(
+          const resolved = this.resolveVaultTarget(
             args.vaultAddress as string,
+            args.network as string | undefined,
+          );
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const txResult = await defi.vaults.deposit(
+            resolved.address,
             args.assetAmount as string,
             args.assetDecimals as number | undefined,
           );
-          result = { hash: txResult.hash, status: txResult.receipt.status };
+          result = {
+            request: {
+              vaultAddress: args.vaultAddress as string,
+              assetAmount: args.assetAmount as string,
+              assetDecimals: args.assetDecimals as number | undefined,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            hash: txResult.hash,
+            status: txResult.receipt.status,
+          };
           break;
         }
 
         case 'vault_withdraw_quote': {
-          const defi = this.agent.defi();
-          result = await defi.vaults.withdrawQuote(
+          const resolved = this.resolveVaultTarget(
             args.vaultAddress as string,
+            args.network as string | undefined,
+          );
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const quote = await defi.vaults.withdrawQuote(
+            resolved.address,
             args.shareAmount as string,
             args.shareDecimals as number | undefined,
           );
+          result = {
+            request: {
+              vaultAddress: args.vaultAddress as string,
+              shareAmount: args.shareAmount as string,
+              shareDecimals: args.shareDecimals as number | undefined,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            quote,
+          };
           break;
         }
 
         case 'vault_withdraw': {
-          const defi = this.agent.defi();
-          const txResult = await defi.vaults.withdraw(
+          const resolved = this.resolveVaultTarget(
             args.vaultAddress as string,
+            args.network as string | undefined,
+          );
+          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const txResult = await defi.vaults.withdraw(
+            resolved.address,
             args.shareAmount as string,
             args.shareDecimals as number | undefined,
           );
-          result = { hash: txResult.hash, status: txResult.receipt.status };
+          result = {
+            request: {
+              vaultAddress: args.vaultAddress as string,
+              shareAmount: args.shareAmount as string,
+              shareDecimals: args.shareDecimals as number | undefined,
+              network: args.network as string | undefined,
+            },
+            resolution: resolved,
+            hash: txResult.hash,
+            status: txResult.receipt.status,
+          };
           break;
         }
         // ─── CoinGecko Market Data ───

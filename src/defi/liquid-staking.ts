@@ -23,6 +23,7 @@ import { Contract, formatEther, parseEther } from 'ethers';
 import type { AgentSigner } from '../wallet/signer';
 import type { TransactionResult } from '../wallet/types';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
+import type { ChainName } from '../utils/networks';
 import type { StakeQuote, UnstakeQuote } from './types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -60,14 +61,36 @@ const SAVAX_ABI = [
  */
 export class LiquidStakingClient {
   private readonly signer: AgentSigner;
+  private readonly chain: ChainName;
   private readonly sAvaxContract: Contract;
   private readonly sAvaxRead: Contract;
 
-  constructor(signer: AgentSigner) {
+  constructor(signer: AgentSigner, chain: ChainName = 'avalanche') {
     this.signer = signer;
+    this.chain = chain;
     this.sAvaxContract = new Contract(SAVAX_CONTRACT, SAVAX_ABI, signer);
     // Read-only contract for quote operations (no signer needed)
     this.sAvaxRead = new Contract(SAVAX_CONTRACT, SAVAX_ABI, signer.provider!);
+  }
+
+  private async ensureProtocolAvailable(): Promise<void> {
+    if (this.chain !== 'avalanche') {
+      throw new EvalancheError(
+        `sAVAX is only available on avalanche; current network is ${this.chain}.`,
+        EvalancheErrorCode.STAKING_ERROR,
+      );
+    }
+
+    const provider = this.signer.provider as { getCode?: (address: string) => Promise<string> } | undefined;
+    if (!provider?.getCode) return;
+
+    const code = await provider.getCode(SAVAX_CONTRACT);
+    if (code === '0x') {
+      throw new EvalancheError(
+        `sAVAX contract is not deployed on ${this.chain}.`,
+        EvalancheErrorCode.CONTRACT_NOT_DEPLOYED,
+      );
+    }
   }
 
   // ── sAVAX Staking (Benqi / Avalanche) ──────────────────────────────────────
@@ -79,6 +102,7 @@ export class LiquidStakingClient {
    */
   async sAvaxStakeQuote(amountAvax: string): Promise<StakeQuote> {
     try {
+      await this.ensureProtocolAvailable();
       const amountWei = parseEther(amountAvax);
       const shares: bigint = await this.sAvaxRead.getSharesByPooledAvax(amountWei);
       const rate = Number(shares) / Number(amountWei);
@@ -90,6 +114,7 @@ export class LiquidStakingClient {
         minOutput: formatEther(shares), // no slippage on stake
       };
     } catch (error) {
+      if (error instanceof EvalancheError) throw error;
       throw new EvalancheError(
         `sAVAX stake quote failed: ${error instanceof Error ? error.message : String(error)}`,
         EvalancheErrorCode.CONTRACT_CALL_FAILED,
@@ -106,6 +131,7 @@ export class LiquidStakingClient {
    */
   async sAvaxStake(amountAvax: string, slippageBps = 100): Promise<TransactionResult> {
     try {
+      await this.ensureProtocolAvailable();
       const amountWei = parseEther(amountAvax);
 
       // Get expected shares to validate after
@@ -137,6 +163,7 @@ export class LiquidStakingClient {
    */
   async sAvaxUnstakeQuote(sharesToRedeem: string, slippageBps = 100): Promise<UnstakeQuote> {
     try {
+      await this.ensureProtocolAvailable();
       const sharesWei = parseEther(sharesToRedeem);
       const [expectedAvax, poolBalance]: [bigint, bigint] = await Promise.all([
         this.sAvaxRead.getPooledAvaxByShares(sharesWei),
@@ -154,6 +181,7 @@ export class LiquidStakingClient {
         isInstant,
       };
     } catch (error) {
+      if (error instanceof EvalancheError) throw error;
       throw new EvalancheError(
         `sAVAX unstake quote failed: ${error instanceof Error ? error.message : String(error)}`,
         EvalancheErrorCode.CONTRACT_CALL_FAILED,
@@ -170,6 +198,7 @@ export class LiquidStakingClient {
    * @returns Transaction result
    */
   async sAvaxUnstakeInstant(shares: string, slippageBps = 100): Promise<TransactionResult> {
+    await this.ensureProtocolAvailable();
     const sharesWei = parseEther(shares);
 
     // Pre-flight checks
@@ -218,6 +247,7 @@ export class LiquidStakingClient {
    * @returns Transaction result
    */
   async sAvaxUnstakeDelayed(shares: string): Promise<TransactionResult> {
+    await this.ensureProtocolAvailable();
     const sharesWei = parseEther(shares);
 
     const walletBalance: bigint = await this.sAvaxRead.balanceOf(this.signer.address);

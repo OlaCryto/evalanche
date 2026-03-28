@@ -27,7 +27,10 @@ import { VaultClient, YOUSD_VAULT } from '../../src/defi/vaults';
 function makeMockSigner() {
   return {
     address: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
-    provider: { _isProvider: true },
+    provider: {
+      _isProvider: true,
+      getCode: vi.fn().mockResolvedValue('0x1234'),
+    },
   } as unknown as ConstructorParameters<typeof VaultClient>[0];
 }
 
@@ -163,6 +166,19 @@ describe('VaultClient', () => {
     const client = new VaultClient(makeMockSigner(), 'base');
     await expect(client.withdrawQuote(YOUSD_VAULT, '990')).rejects.toMatchObject({
       code: EvalancheErrorCode.VAULT_ERROR,
+    });
+  });
+
+  it('fails clearly when no vault is deployed on the current chain', async () => {
+    const signer = makeMockSigner() as ConstructorParameters<typeof VaultClient>[0] & {
+      provider: { getCode: ReturnType<typeof vi.fn> };
+    };
+    signer.provider.getCode = vi.fn().mockResolvedValue('0x');
+
+    const client = new VaultClient(signer, 'avalanche');
+    await expect(client.vaultInfo(YOUSD_VAULT)).rejects.toMatchObject({
+      code: EvalancheErrorCode.CONTRACT_NOT_DEPLOYED,
+      message: expect.stringContaining('may exist on a different chain'),
     });
   });
 });

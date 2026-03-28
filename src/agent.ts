@@ -623,7 +623,8 @@ export class Evalanche {
     if (!this._defiStaking) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { LiquidStakingClient: LSC } = require('./defi/liquid-staking') as typeof import('./defi/liquid-staking');
-      this._defiStaking = new LSC(this.wallet);
+      const networkName = typeof this._networkOption === 'string' ? this._networkOption : 'ethereum';
+      this._defiStaking = new LSC(this.wallet, networkName);
     }
     if (!this._defiVaults) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
