@@ -52,7 +52,7 @@
     "@dydxprotocol/v4-client-js": "^3.6.0",
     "@nktkas/hyperliquid": "^0.32.2",
     "@polymarket/clob-client": "^5.8.0",
-    "big.js": "^7.0.1",
+    "big.js": "^6.2.2",
     "ethers": "^6.13.0",
     "viem": "^2.47.6"
   },
