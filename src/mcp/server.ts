@@ -1569,7 +1569,7 @@ export class EvalancheMCPServer {
     if (this._polymarketNonceBase === null) {
       // Set the session base: timestamp * 1000 ensures each session starts
       // with nonces >> any previous session's range, within int64 bounds.
-      this._polymarketNonceBase = 0;
+      this._polymarketNonceBase = Date.now() * 1000;
     }
     return this._polymarketNonceBase;
   }
@@ -4211,7 +4211,7 @@ export class EvalancheMCPServer {
                 side: Side.BUY,
                 size,
                 feeRateBps: 0,
-                nonce: 0,
+                nonce: this.nextPolymarketNonce(),
                 tickSize: String(tickSize),
                 negRisk,
               });
