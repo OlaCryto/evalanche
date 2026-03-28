@@ -71,6 +71,13 @@ export type {
 
 export { LiquidStakingClient } from './defi/liquid-staking';
 export { VaultClient, YOUSD_VAULT } from './defi/vaults';
+export {
+  CompositeDappRegistry,
+  LocalCanonicalDappRegistryProvider,
+  createDefaultDappRegistry,
+  parseInteroperableAddress,
+  resolveDappTarget,
+} from './defi/dapp-registry';
 export type { StakeQuote, UnstakeQuote, VaultQuote, VaultInfo, VaultConfig } from './defi/types';
 
 export { CoinGeckoClient } from './market/coingecko';
