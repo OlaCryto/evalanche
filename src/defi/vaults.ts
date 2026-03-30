@@ -48,18 +48,23 @@ export class VaultClient {
     return new Contract(vaultAddress, ERC4626_ABI, this.signer);
   }
 
+  private vaultRead(vaultAddress: string): Contract {
+    return new Contract(vaultAddress, ERC4626_ABI, this.signer.provider!);
+  }
+
   private erc20(tokenAddress: string): Contract {
     return new Contract(tokenAddress, ERC20_ABI, this.signer);
   }
 
-  private async ensureVaultAvailable(vaultAddress: string): Promise<void> {
-    const provider = this.signer.provider as { getCode?: (address: string) => Promise<string> } | undefined;
-    if (!provider?.getCode) return;
+  private erc20Read(tokenAddress: string): Contract {
+    return new Contract(tokenAddress, ERC20_ABI, this.signer.provider!);
+  }
 
-    const code = await provider.getCode(vaultAddress);
-    if (code === '0x') {
+  private async ensureVaultDeployed(vaultAddress: string): Promise<void> {
+    const code = await this.signer.provider?.getCode(vaultAddress);
+    if (!code || code === '0x') {
       throw new EvalancheError(
-        `No vault contract is deployed at ${vaultAddress} on ${this.chain}. The vault may exist on a different chain.`,
+        `No vault is deployed at ${vaultAddress} on ${this.chain}; it may exist on a different chain.`,
         EvalancheErrorCode.CONTRACT_NOT_DEPLOYED,
       );
     }
@@ -67,7 +72,6 @@ export class VaultClient {
 
   async vaultInfo(vaultAddress: string): Promise<VaultInfo> {
     try {
-      await this.ensureVaultAvailable(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
 
       return {
@@ -92,8 +96,7 @@ export class VaultClient {
     assetDecimalsOverride?: number,
   ): Promise<VaultQuote> {
     try {
-      await this.ensureVaultAvailable(vaultAddress);
-      const vault = this.vault(vaultAddress);
+      const vault = this.vaultRead(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
       const amount = parseUnits(assets, assetDecimals);
@@ -116,7 +119,6 @@ export class VaultClient {
     assetDecimalsOverride?: number,
   ): Promise<TransactionResult> {
     try {
-      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const assetDecimals = assetDecimalsOverride ?? metadata.assetDecimals;
@@ -144,8 +146,7 @@ export class VaultClient {
     shareDecimalsOverride?: number,
   ): Promise<VaultQuote> {
     try {
-      await this.ensureVaultAvailable(vaultAddress);
-      const vault = this.vault(vaultAddress);
+      const vault = this.vaultRead(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
       const shareAmount = parseUnits(shares, shareDecimals);
@@ -168,7 +169,6 @@ export class VaultClient {
     shareDecimalsOverride?: number,
   ): Promise<TransactionResult> {
     try {
-      await this.ensureVaultAvailable(vaultAddress);
       const vault = this.vault(vaultAddress);
       const metadata = await this.loadMetadata(vaultAddress);
       const shareDecimals = shareDecimalsOverride ?? metadata.shareDecimals;
@@ -183,21 +183,20 @@ export class VaultClient {
   }
 
   private async loadMetadata(vaultAddress: string): Promise<VaultMetadata> {
-    const vault = this.vault(vaultAddress);
+    await this.ensureVaultDeployed(vaultAddress);
+    const vault = this.vaultRead(vaultAddress);
 
     try {
-      const [name, asset, totalAssets, shareDecimals] = await Promise.all([
-        vault.name(),
-        vault.asset(),
-        vault.totalAssets(),
-        vault.decimals(),
-      ]);
+      // Some RPCs become flaky when several ERC-4626 metadata calls are issued in parallel.
+      // Keep these reads sequential so quote/info paths stay deterministic across providers.
+      const name = await vault.name();
+      const asset = await vault.asset();
+      const totalAssets = await vault.totalAssets();
+      const shareDecimals = await vault.decimals();
 
-      const assetContract = this.erc20(asset);
-      const [assetDecimals, assetSymbol] = await Promise.all([
-        assetContract.decimals(),
-        assetContract.symbol().catch(() => undefined),
-      ]);
+      const assetContract = this.erc20Read(asset);
+      const assetDecimals = await assetContract.decimals();
+      const assetSymbol = await assetContract.symbol().catch(() => undefined);
 
       return {
         name,

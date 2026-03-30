@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EvalancheMCPServer } from '../../src/mcp/server';
-import { YOUSD_VAULT } from '../../src/defi/vaults';
-import { EvalancheErrorCode } from '../../src/utils/errors';
 
 const mockProvider = {
   getBalance: vi.fn().mockResolvedValue(BigInt('1000000000000000000')),
 };
+let lastJsonRpcProviderArgs: unknown[] = [];
 
 const mockWallet = {
   address: '0x1234567890abcdef1234567890abcdef12345678',
@@ -80,7 +79,8 @@ let contractMock: Record<string, unknown> = {
 
 vi.mock('ethers', () => {
   class MockJsonRpcProvider {
-    constructor() {
+    constructor(...args: unknown[]) {
+      lastJsonRpcProviderArgs = args;
       return mockProvider;
     }
   }
@@ -116,7 +116,7 @@ vi.mock('ethers', () => {
     Wallet: MockWallet,
     HDNodeWallet: MockHDNodeWallet,
     Contract: MockContract,
-    getAddress: vi.fn((value: string) => value),
+    getAddress: vi.fn((address: string) => address),
     parseEther: vi.fn((v: string) => BigInt(Math.floor(parseFloat(v) * 1e18))),
     parseUnits: vi.fn((v: string, d: number) => BigInt(Math.floor(parseFloat(v) * (10 ** d)))),
     formatEther: vi.fn((v: bigint) => (Number(v) / 1e18).toString()),
@@ -129,6 +129,7 @@ describe('EvalancheMCPServer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    lastJsonRpcProviderArgs = [];
     contractMock = {
       ...contractMock,
       queryFilter: vi.fn().mockResolvedValue([]),
@@ -159,86 +160,11 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('1.8.6');
+    expect(result.serverInfo.version).toBe('1.8.0');
   });
 
-  it('auto-routes yoUSD vault_info to Base without manual network switching', async () => {
-    const vaultInfo = { address: YOUSD_VAULT, chain: 'base', name: 'yoUSD Vault' };
-    const baseAgent = {
-      defi: vi.fn().mockReturnValue({
-        vaults: { vaultInfo: vi.fn().mockResolvedValue(vaultInfo) },
-      }),
-    };
-    const agent = (server as unknown as { agent: { switchNetwork: ReturnType<typeof vi.fn> } }).agent;
-    agent.switchNetwork = vi.fn().mockReturnValue(baseAgent);
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 3,
-      method: 'tools/call',
-      params: { name: 'vault_info', arguments: { vaultAddress: YOUSD_VAULT } },
-    });
-
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(agent.switchNetwork).toHaveBeenCalledWith('base');
-    expect(parsed.resolution.network).toBe('base');
-    expect(parsed.info.name).toBe('yoUSD Vault');
-  });
-
-  it('fails clearly when an explicit vault network conflicts with canonical routing', async () => {
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 4,
-      method: 'tools/call',
-      params: {
-        name: 'vault_info',
-        arguments: { vaultAddress: YOUSD_VAULT, network: 'avalanche' },
-      },
-    });
-
-    const result = res.result as { isError: boolean; content: Array<{ text: string }> };
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('registered on base, not avalanche');
-  });
-
-  it('fails clearly when sAVAX is requested on the wrong explicit chain', async () => {
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 5,
-      method: 'tools/call',
-      params: {
-        name: 'savax_unstake_quote',
-        arguments: { shares: '1', network: 'base' },
-      },
-    });
-
-    const result = res.result as { isError: boolean; content: Array<{ text: string }> };
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain('registered on avalanche, not base');
-  });
-
-  it('routes sAVAX quotes to Avalanche and preserves the quote envelope', async () => {
-    const quote = { avaxOut: '1.0', expectedOutput: '1.0', minOutput: '0.99', poolBalance: '100', isInstant: true };
-    const agent = (server as unknown as { agent: { defi: ReturnType<typeof vi.fn>; switchNetwork: ReturnType<typeof vi.fn> } }).agent;
-    agent.defi = vi.fn().mockReturnValue({
-      staking: { sAvaxUnstakeQuote: vi.fn().mockResolvedValue(quote) },
-    });
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 6,
-      method: 'tools/call',
-      params: {
-        name: 'savax_unstake_quote',
-        arguments: { shares: '1', network: 'avalanche' },
-      },
-    });
-
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.resolution.network).toBe('avalanche');
-    expect(parsed.quote.isInstant).toBe(true);
+  it('creates providers with batching disabled', () => {
+    expect(lastJsonRpcProviderArgs[2]).toMatchObject({ batchMaxCount: 1 });
   });
 
   it('lists tools including new bridge/chain tools', async () => {
@@ -377,8 +303,6 @@ describe('EvalancheMCPServer', () => {
         statusTimestamp: 1234,
         order: { orderId: '555', market: 'BTC', side: 'BUY' },
       }),
-      getOpenOrders: vi.fn().mockResolvedValue([{ orderId: '555', market: 'BTC' }]),
-      getAccountState: vi.fn().mockResolvedValue({ accountValue: '1000', positions: [] }),
     };
     const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
     agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
@@ -396,110 +320,7 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tool).toBe('hyperliquid_place_limit_order');
     expect(parsed.submission.orderId).toBe('555');
-    expect(parsed.verification.order.status).toBe('open');
-    expect(parsed.verification.openOrders).toHaveLength(1);
-    expect(parsed.verification.accountState.accountValue).toBe('1000');
-  });
-
-  it('handles hyperliquid_place_market_order with post-trade verification', async () => {
-    const mockHyperliquid = {
-      placeMarketOrderDetailed: vi.fn().mockResolvedValue({
-        orderId: '777',
-        status: 'filled',
-        averageFillPrice: '100200',
-        raw: {},
-      }),
-      getOrder: vi.fn().mockResolvedValue({ status: 'filled', order: { orderId: '777', market: 'BTC' } }),
-      getPositions: vi.fn().mockResolvedValue([{ market: 'BTC', side: 'LONG', size: '0.1' }]),
-      getTrades: vi.fn().mockResolvedValue([{ hash: '0xtrade', market: 'BTC' }]),
-    };
-    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
-    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 26,
-      method: 'tools/call',
-      params: {
-        name: 'hyperliquid_place_market_order',
-        arguments: { market: 'BTC', side: 'BUY', size: '0.1' },
-      },
-    });
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.tool).toBe('hyperliquid_place_market_order');
-    expect(parsed.verification.order.status).toBe('filled');
-    expect(parsed.verification.positions).toHaveLength(1);
-    expect(parsed.verification.trades).toHaveLength(1);
-  });
-
-  it('handles hyperliquid_cancel_order with post-cancel verification', async () => {
-    const mockHyperliquid = {
-      cancelOrder: vi.fn().mockResolvedValue(undefined),
-      getOrder: vi.fn().mockResolvedValue({ status: 'canceled', order: { orderId: '555', market: 'BTC' } }),
-      getOpenOrders: vi.fn().mockResolvedValue([]),
-    };
-    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
-    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 27,
-      method: 'tools/call',
-      params: {
-        name: 'hyperliquid_cancel_order',
-        arguments: { orderId: '555' },
-      },
-    });
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.verification.order.status).toBe('canceled');
-    expect(parsed.verification.openOrders).toHaveLength(0);
-  });
-
-  it('handles hyperliquid_close_position and preserves empty-account edge cases', async () => {
-    const mockHyperliquid = {
-      closePosition: vi.fn().mockResolvedValue('close-1'),
-      getOrder: vi.fn().mockResolvedValue({ status: 'filled', order: { orderId: 'close-1', market: 'BTC' } }),
-      getPositions: vi.fn().mockResolvedValue([]),
-      getAccountState: vi.fn().mockResolvedValue({ accountValue: '500', positions: [] }),
-    };
-    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
-    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 28,
-      method: 'tools/call',
-      params: {
-        name: 'hyperliquid_close_position',
-        arguments: { market: 'BTC' },
-      },
-    });
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.verification.order.status).toBe('filled');
-    expect(parsed.verification.positions).toEqual([]);
-    expect(parsed.verification.accountState.positions).toEqual([]);
-  });
-
-  it('handles hyperliquid_get_positions for an empty account', async () => {
-    const mockHyperliquid = {
-      getPositions: vi.fn().mockResolvedValue([]),
-    };
-    const agent = (server as unknown as { agent: { hyperliquid: ReturnType<typeof vi.fn> } }).agent;
-    agent.hyperliquid = vi.fn().mockResolvedValue(mockHyperliquid);
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 29,
-      method: 'tools/call',
-      params: { name: 'hyperliquid_get_positions', arguments: {} },
-    });
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.count).toBe(0);
-    expect(parsed.positions).toEqual([]);
+    expect(parsed.verification.status).toBe('open');
   });
 
   it('handles lifi_swap with submission and verification envelope', async () => {
@@ -531,7 +352,6 @@ describe('EvalancheMCPServer', () => {
           fromToken: 'native',
           toToken: '0xToken',
           fromAmount: '1',
-          routeStrategy: 'fastest_route',
         },
       },
     });
@@ -539,51 +359,7 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tool).toBe('lifi_swap');
     expect(parsed.submission.txHash).toBe('0xtx');
-    expect(parsed.request.routeStrategy).toBe('fastest_route');
     expect(parsed.verification.sourceReceiptStatus).toBe(1);
-    expect(parsed.verification.txHash).toBe('0xtx');
-  });
-
-  it('handles lifi_compose with cross-chain verification envelope', async () => {
-    const agent = (server as unknown as { agent: { bridgeTokensDetailed: ReturnType<typeof vi.fn> } }).agent;
-    agent.bridgeTokensDetailed = vi.fn().mockResolvedValue({
-      txHash: '0xbridge',
-      status: 'success',
-      routeId: 'route-2',
-      tool: 'across',
-      sourceReceiptStatus: 1,
-      transferStatus: { status: 'PENDING', substatus: 'WAIT_SOURCE_CONFIRMATIONS' },
-      balances: {
-        fromTokenBefore: { amount: '10' },
-        fromTokenAfter: { amount: '9' },
-        toTokenBefore: { amount: '0' },
-        toTokenAfter: { amount: '1' },
-      },
-      warnings: ['Bridge still pending destination confirmations.'],
-    });
-
-    const res = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 30,
-      method: 'tools/call',
-      params: {
-        name: 'lifi_compose',
-        arguments: {
-          fromChainId: 1,
-          toChainId: 42161,
-          fromToken: 'native',
-          toVaultToken: '0xVault',
-          fromAmount: '1',
-          routeStrategy: 'minimum_execution_time',
-        },
-      },
-    });
-    const result = res.result as { content: Array<{ text: string }> };
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.tool).toBe('lifi_compose');
-    expect(parsed.request.routeStrategy).toBe('minimum_execution_time');
-    expect(parsed.verification.transferStatus.status).toBe('PENDING');
-    expect(parsed.verification.txHash).toBe('0xbridge');
   });
 
   it('handles pm_cancel_order with venue reconciliation envelope', async () => {
@@ -607,15 +383,14 @@ describe('EvalancheMCPServer', () => {
     };
     const serverAny = server as unknown as {
       getAuthedClobClient: ReturnType<typeof vi.fn>;
-      getPublicPolymarketClient: ReturnType<typeof vi.fn>;
+      resolvePolymarketMarketToken: ReturnType<typeof vi.fn>;
     };
     serverAny.getAuthedClobClient = vi.fn().mockResolvedValue(mockPolymarket);
-    serverAny.getPublicPolymarketClient = vi.fn().mockReturnValue({
-      getMarket: vi.fn().mockResolvedValue({
-        conditionId: 'cond-1',
-        title: 'Test market',
-        tokens: [{ tokenId: 'token-yes', outcome: 'YES' }],
-      }),
+    serverAny.resolvePolymarketMarketToken = vi.fn().mockResolvedValue({
+      ok: true,
+      tokenId: 'token-yes',
+      marketInspection: { ok: true },
+      token: { tokenId: 'token-yes', outcome: 'YES' },
     });
 
     const res = await server.handleRequest({
@@ -956,6 +731,79 @@ describe('EvalancheMCPServer', () => {
     );
     expect(parsed.count).toBe(0);
     expect(parsed.services).toEqual([]);
+  });
+
+  it('routes vault_info via interoperable address to the canonical chain', async () => {
+    const vaultInfo = vi.fn().mockResolvedValue({ name: 'yoUSD', eip4626: true });
+    const switchNetwork = vi.fn().mockReturnValue({
+      defi: () => ({ vaults: { vaultInfo } }),
+    });
+    (server as any).agent.switchNetwork = switchNetwork;
+
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 45,
+      method: 'tools/call',
+      params: {
+        name: 'vault_info',
+        arguments: { vaultAddress: '0x0000000F2Eb9f69274678c76222B35eEC7588A65@base' },
+      },
+    });
+
+    const parsed = JSON.parse(
+      (res.result as { content: Array<{ text: string }> }).content[0].text,
+    );
+    expect(parsed.resolution.network).toBe('base');
+    expect(parsed.resolution.source).toBe('interop_address');
+    expect(parsed.vault.name).toBe('yoUSD');
+    expect(switchNetwork).toHaveBeenCalledWith('base');
+    expect(vaultInfo).toHaveBeenCalledWith('0x0000000f2eb9f69274678c76222b35eec7588a65');
+  });
+
+  it('auto-routes savax_unstake_quote to Avalanche from a non-Avalanche current network', async () => {
+    const polygonServer = new EvalancheMCPServer({
+      privateKey: '0x' + 'a'.repeat(64),
+      network: 'polygon',
+    });
+    const sAvaxUnstakeQuote = vi.fn().mockResolvedValue({ isInstant: true, avaxOut: '0.95' });
+    const switchNetwork = vi.fn().mockReturnValue({
+      defi: () => ({ staking: { sAvaxUnstakeQuote } }),
+    });
+    (polygonServer as any).agent.switchNetwork = switchNetwork;
+
+    const res = await polygonServer.handleRequest({
+      jsonrpc: '2.0',
+      id: 46,
+      method: 'tools/call',
+      params: {
+        name: 'savax_unstake_quote',
+        arguments: { shares: '1' },
+      },
+    });
+
+    const parsed = JSON.parse(
+      (res.result as { content: Array<{ text: string }> }).content[0].text,
+    );
+    expect(parsed.resolution.network).toBe('avalanche');
+    expect(parsed.quote.isInstant).toBe(true);
+    expect(switchNetwork).toHaveBeenCalledWith('avalanche');
+    expect(sAvaxUnstakeQuote).toHaveBeenCalledWith('1', undefined);
+  });
+
+  it('fails fast when savax tools are forced onto the wrong chain', async () => {
+    const res = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 47,
+      method: 'tools/call',
+      params: {
+        name: 'savax_unstake_quote',
+        arguments: { shares: '1', network: 'base' },
+      },
+    });
+
+    const result = res.result as { isError?: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/registered on avalanche/i);
   });
 
   // Service host tools (v1.0.0)

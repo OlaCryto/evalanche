@@ -1,12 +1,11 @@
 import { Evalanche } from '../agent';
 import type { EvalancheConfig } from '../agent';
-import { createDefaultDappRegistry, resolveDappTarget } from '../defi/dapp-registry';
 import { IdentityResolver } from '../identity/resolver';
 import { ArenaSwapClient } from '../swap/arena';
 import { approveAndCall, upgradeProxy } from '../utils/contract-helpers';
 import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
-import { getNetworkConfig, type ChainName } from '../utils/networks';
-import { getAllChains, getChainById } from '../utils/chains';
+import { getNetworkConfig } from '../utils/networks';
+import { getAllChains } from '../utils/chains';
 import { NATIVE_TOKEN } from '../bridge/lifi';
 import { safeFetch } from '../utils/safe-fetch';
 import { CoinGeckoClient } from '../market/coingecko';
@@ -17,6 +16,8 @@ import { NegotiationClient } from '../economy/negotiation';
 import { SettlementClient } from '../economy/settlement';
 import { AgentMemory } from '../economy/memory';
 import { InteropIdentityResolver } from '../interop/identity';
+import { createDefaultDappRegistry, resolveDappTarget } from '../defi/dapp-registry';
+import type { ChainName } from '../utils/networks';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 
 /** MCP tool definition */
@@ -1051,7 +1052,7 @@ const TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         amountAvax: { type: 'string', description: 'Amount of AVAX to stake (human-readable, e.g. "10")' },
-        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
+        network: { type: 'string', description: 'Optional network override. Canonical route is Avalanche.' },
       },
       required: ['amountAvax'],
     },
@@ -1064,7 +1065,7 @@ const TOOLS: MCPTool[] = [
       properties: {
         amountAvax: { type: 'string', description: 'Amount of AVAX to stake (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
-        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
+        network: { type: 'string', description: 'Optional network override. Canonical route is Avalanche.' },
       },
       required: ['amountAvax'],
     },
@@ -1077,7 +1078,7 @@ const TOOLS: MCPTool[] = [
       properties: {
         shares: { type: 'string', description: 'Amount of sAVAX to redeem (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
-        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
+        network: { type: 'string', description: 'Optional network override. Canonical route is Avalanche.' },
       },
       required: ['shares'],
     },
@@ -1091,7 +1092,7 @@ const TOOLS: MCPTool[] = [
         shares: { type: 'string', description: 'Amount of sAVAX to redeem (human-readable)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
         forceDelayed: { type: 'boolean', description: 'Force delayed unstake even if instant is available (default: false)' },
-        network: { type: 'string', description: 'Optional network override (defaults to Avalanche for sAVAX)' },
+        network: { type: 'string', description: 'Optional network override. Canonical route is Avalanche.' },
       },
       required: ['shares'],
     },
@@ -1105,7 +1106,7 @@ const TOOLS: MCPTool[] = [
       type: 'object',
       properties: {
         vaultAddress: { type: 'string', description: 'Vault contract address' },
-        network: { type: 'string', description: 'Optional network override for vault resolution' },
+        network: { type: 'string', description: 'Optional network override. Interoperable addresses like 0x...@base are also supported.' },
       },
       required: ['vaultAddress'],
     },
@@ -1119,7 +1120,7 @@ const TOOLS: MCPTool[] = [
         vaultAddress: { type: 'string', description: 'Vault contract address' },
         assetAmount: { type: 'string', description: 'Amount of underlying asset (human-readable)' },
         assetDecimals: { type: 'number', description: 'Decimals of the underlying asset (default: 6)' },
-        network: { type: 'string', description: 'Optional network override for vault resolution' },
+        network: { type: 'string', description: 'Optional network override. Interoperable addresses like 0x...@base are also supported.' },
       },
       required: ['vaultAddress', 'assetAmount'],
     },
@@ -1134,7 +1135,7 @@ const TOOLS: MCPTool[] = [
         assetAmount: { type: 'string', description: 'Amount of underlying asset to deposit (human-readable)' },
         assetDecimals: { type: 'number', description: 'Decimals of the underlying asset (default: 6)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
-        network: { type: 'string', description: 'Optional network override for vault resolution' },
+        network: { type: 'string', description: 'Optional network override. Interoperable addresses like 0x...@base are also supported.' },
       },
       required: ['vaultAddress', 'assetAmount'],
     },
@@ -1148,7 +1149,7 @@ const TOOLS: MCPTool[] = [
         vaultAddress: { type: 'string', description: 'Vault contract address' },
         shareAmount: { type: 'string', description: 'Amount of vault shares to redeem (human-readable)' },
         shareDecimals: { type: 'number', description: 'Decimals of the vault shares (default: 6)' },
-        network: { type: 'string', description: 'Optional network override for vault resolution' },
+        network: { type: 'string', description: 'Optional network override. Interoperable addresses like 0x...@base are also supported.' },
       },
       required: ['vaultAddress', 'shareAmount'],
     },
@@ -1163,7 +1164,7 @@ const TOOLS: MCPTool[] = [
         shareAmount: { type: 'string', description: 'Amount of vault shares to redeem (human-readable)' },
         shareDecimals: { type: 'number', description: 'Decimals of the vault shares (default: 6)' },
         slippageBps: { type: 'number', description: 'Slippage tolerance in basis points (default: 100 = 1%)' },
-        network: { type: 'string', description: 'Optional network override for vault resolution' },
+        network: { type: 'string', description: 'Optional network override. Interoperable addresses like 0x...@base are also supported.' },
       },
       required: ['vaultAddress', 'shareAmount'],
     },
@@ -1485,10 +1486,10 @@ export class EvalancheMCPServer {
   private memory: AgentMemory;
   private interopResolver: InteropIdentityResolver;
   private coingecko: CoinGeckoClient;
+  private readonly dappRegistry = createDefaultDappRegistry();
   private polymarket: PolymarketClient | null = null;
   private authedClobClient: any = null;
   private lastPolymarketNonce = 0;
-  private dappRegistry = createDefaultDappRegistry();
 
 
   constructor(config: EvalancheConfig) {
@@ -1511,25 +1512,22 @@ export class EvalancheMCPServer {
     this.authedClobClient = null;
   }
 
-  private getCurrentNetworkAlias(): ChainName {
-    const configuredNetwork = this.config.network ?? 'avalanche';
-    if (typeof configuredNetwork === 'string') return configuredNetwork;
-    const chain = getChainById(getNetworkConfig(configuredNetwork).chainId);
-    return (chain?.shortName === 'avax' ? 'avalanche' : chain?.shortName ?? 'ethereum') as ChainName;
+  private getCurrentNetworkName(): ChainName {
+    return (typeof this.config.network === 'string' ? this.config.network : 'avalanche') as ChainName;
   }
 
-  private getEvalancheForNetwork(network: ChainName): Evalanche {
-    return this.getCurrentNetworkAlias() === network
+  private getDefiAgentForNetwork(network: ChainName): Evalanche {
+    return network === this.getCurrentNetworkName()
       ? this.agent
       : this.agent.switchNetwork(network);
   }
 
-  private resolveVaultTarget(vaultAddress: string, explicitNetwork?: string) {
+  private resolveVaultTarget(target: string, explicitNetwork?: string) {
     return resolveDappTarget(
       {
-        target: vaultAddress,
+        target,
         explicitNetwork,
-        currentNetwork: this.getCurrentNetworkAlias(),
+        currentNetwork: this.getCurrentNetworkName(),
       },
       this.dappRegistry,
     );
@@ -1540,7 +1538,7 @@ export class EvalancheMCPServer {
       {
         target: 'savax',
         explicitNetwork,
-        currentNetwork: this.getCurrentNetworkAlias(),
+        currentNetwork: this.getCurrentNetworkName(),
       },
       this.dappRegistry,
     );
@@ -1811,38 +1809,6 @@ export class EvalancheMCPServer {
     }) ?? null;
   }
 
-  private normalizePolymarketPositionSize(position: unknown): number {
-    if (!position || typeof position !== 'object') return 0;
-    const record = position as Record<string, unknown>;
-    const candidate = record.size ?? record.balance ?? 0;
-    const parsed = Number(candidate);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-
-  private buildPolymarketVenueStateSummary(input: {
-    tokenId?: string;
-    balances?: { conditional?: { balance?: number } | null } | null;
-    relevantPosition?: unknown;
-  }) {
-    const conditionalBalance = Number(input.balances?.conditional?.balance ?? 0);
-    const positionSize = this.normalizePolymarketPositionSize(input.relevantPosition);
-    const hasMismatch = Boolean(
-      input.tokenId
-      && (input.balances?.conditional != null || input.relevantPosition != null)
-      && Math.abs(conditionalBalance - positionSize) > 1e-9,
-    );
-
-    return {
-      tokenId: input.tokenId ?? null,
-      conditionalBalance,
-      positionSize,
-      hasMismatch,
-      warning: hasMismatch
-        ? `Venue conditional balance ${conditionalBalance} differs from position size ${positionSize}.`
-        : null,
-    };
-  }
-
   private async inspectPolymarketMarket(conditionId: string): Promise<any> {
     try {
       const market = await this.getPolymarket().getMarket(conditionId);
@@ -2032,7 +1998,9 @@ export class EvalancheMCPServer {
       // allowance record can lag behind the actual blockchain state, so we always
       // use the on-chain value as the source of truth for the allowance check.
       const onChainAllowanceRaw = await this.getOnChainUsdcAllowance();
-      const onChainAllowance = Number(onChainAllowanceRaw / 1_000_000n); // USDC has 6 decimals
+      const onChainAllowance = this.normalizeUsdcDisplayAmount(onChainAllowanceRaw.toString());
+      const hasOnChainAllowance = onChainAllowanceRaw > 0n;
+      const normalizedClobAllowance = this.normalizeUsdcDisplayAmount(collateral?.allowance);
 
       return {
         ok: true,
@@ -2041,13 +2009,16 @@ export class EvalancheMCPServer {
           ? {
             balance: this.normalizeUsdcDisplayAmount(collateral.balance),
             rawBalance: String(collateral.balance ?? '0'),
-            // Prefer on-chain allowance; fall back to CLOB API record if on-chain is 0
-            allowance: onChainAllowance > 0 ? onChainAllowance : this.normalizeUsdcDisplayAmount(collateral.allowance),
-            rawAllowance: String(collateral.allowance ?? '0'),
+            // Prefer on-chain allowance; fall back to CLOB API record if on-chain is 0.
+            allowance: hasOnChainAllowance ? onChainAllowance : normalizedClobAllowance,
+            rawAllowance: hasOnChainAllowance ? onChainAllowanceRaw.toString() : String(collateral.allowance ?? '0'),
+            allowanceSource: hasOnChainAllowance ? 'on_chain' : 'clob',
           }
           : {
             balance: 0,
             allowance: onChainAllowance,
+            rawAllowance: onChainAllowanceRaw.toString(),
+            allowanceSource: 'on_chain',
           },
         conditional: conditional
           ? {
@@ -2071,6 +2042,56 @@ export class EvalancheMCPServer {
     if (checks.some((check) => check.status === 'blocked')) return 'blocked';
     if (checks.some((check) => check.status === 'risky')) return 'risky';
     return 'ready';
+  }
+
+  private getPolymarketOrderId(orderResult: any): string | null {
+    const orderId = orderResult?.orderID ?? orderResult?.orderIds?.[0];
+    if (typeof orderId !== 'string' || orderId.trim().length === 0 || orderId === 'unknown') return null;
+    return orderId;
+  }
+
+  private getPolymarketSubmissionFailure(orderResult: any): { code: string; status: number | string | null; message: string } | null {
+    if (!orderResult || typeof orderResult !== 'object') return null;
+
+    const status = typeof orderResult.status === 'number' || typeof orderResult.status === 'string'
+      ? orderResult.status
+      : null;
+    const errorValue = orderResult.error;
+    const message =
+      (typeof errorValue === 'string' && errorValue) ||
+      (typeof errorValue?.message === 'string' && errorValue.message) ||
+      (typeof orderResult.message === 'string' && orderResult.message) ||
+      (typeof orderResult.reason === 'string' && orderResult.reason) ||
+      (typeof orderResult.msg === 'string' && orderResult.msg) ||
+      null;
+
+    const hasFailureStatus = typeof status === 'number' && status >= 400;
+    const hasExplicitFailure = orderResult.success === false || errorValue === true || message !== null;
+    if (!hasFailureStatus && !hasExplicitFailure) return null;
+
+    const lowerMessage = message?.toLowerCase() ?? '';
+    const code = /geoblock|restricted in your region/.test(lowerMessage)
+      ? 'geoblocked'
+      : 'submission_rejected';
+
+    return {
+      code,
+      status,
+      message: message ?? 'Polymarket venue rejected the submission.',
+    };
+  }
+
+  private buildSkippedPolymarketVerification(reason: { code: string; status: number | string | null; message: string }, tokenId?: string | null): any {
+    return {
+      sourceOfTruth: 'venue',
+      skipped: true,
+      reason: reason.code,
+      tokenId: tokenId ?? null,
+      error: {
+        status: reason.status,
+        message: reason.message,
+      },
+    };
   }
 
   private async runPolymarketPreflight(input: {
@@ -2224,8 +2245,8 @@ export class EvalancheMCPServer {
           status: conditionalBalance >= desiredShares ? 'pass' : 'blocked',
           message:
             conditionalBalance >= desiredShares
-              ? `Venue conditional balance ${conditionalBalance} covers desired sell size ${desiredShares}.`
-              : `Venue conditional balance ${conditionalBalance} is below desired sell size ${desiredShares}.`,
+              ? `Conditional balance ${conditionalBalance} covers desired sell size ${desiredShares}.`
+              : `Conditional balance ${conditionalBalance} is below desired sell size ${desiredShares}.`,
         });
         checks.push({
           name: 'visible_liquidity',
@@ -2259,8 +2280,8 @@ export class EvalancheMCPServer {
         status: conditionalBalance >= shares ? 'pass' : 'blocked',
         message:
           conditionalBalance >= shares
-            ? `Venue conditional balance ${conditionalBalance} covers ${shares} shares.`
-            : `Venue conditional balance ${conditionalBalance} is below ${shares} shares.`,
+            ? `Conditional balance ${conditionalBalance} covers ${shares} shares.`
+            : `Conditional balance ${conditionalBalance} is below ${shares} shares.`,
       });
       checks.push({
         name: 'price',
@@ -2347,11 +2368,6 @@ export class EvalancheMCPServer {
         : null)
       : null;
     const relevantPosition = this.findRelevantPolymarketPosition(positions, tokenId);
-    const venueState = this.buildPolymarketVenueStateSummary({
-      tokenId,
-      balances,
-      relevantPosition,
-    });
 
     const orderStatus = order
       ? String((order as Record<string, unknown>).status ?? 'unknown')
@@ -2393,8 +2409,6 @@ export class EvalancheMCPServer {
           ? Number((relevantPosition as Record<string, unknown>).size ?? (relevantPosition as Record<string, unknown>).balance ?? 0)
           : 0,
       },
-      venueState,
-      warnings: venueState.warning ? [venueState.warning] : [],
     };
   }
 
@@ -2493,7 +2507,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '1.8.6',
+              version: '1.8.0',
             },
           });
 
@@ -2920,20 +2934,14 @@ export class EvalancheMCPServer {
             reduceOnly: args.reduceOnly as boolean | undefined,
           };
           const submission = await hyperliquid.placeMarketOrderDetailed(request);
-          const order = submission.orderId
+          const verification = submission.orderId
             ? await hyperliquid.getOrder(submission.orderId)
             : { status: submission.status, raw: submission.raw };
-          const positions = await hyperliquid.getPositions();
-          const trades = await hyperliquid.getTrades();
           result = {
             tool: 'hyperliquid_place_market_order',
             request,
             submission,
-            verification: {
-              order,
-              positions,
-              trades,
-            },
+            verification,
             warnings: [],
           };
           break;
@@ -2951,20 +2959,14 @@ export class EvalancheMCPServer {
             postOnly: args.postOnly as boolean | undefined,
           };
           const submission = await hyperliquid.placeLimitOrderDetailed(request);
-          const order = submission.orderId
+          const verification = submission.orderId
             ? await hyperliquid.getOrder(submission.orderId)
             : { status: submission.status, raw: submission.raw };
-          const openOrders = await hyperliquid.getOpenOrders();
-          const accountState = await hyperliquid.getAccountState();
           result = {
             tool: 'hyperliquid_place_limit_order',
             request,
             submission,
-            verification: {
-              order,
-              openOrders,
-              accountState,
-            },
+            verification,
             warnings: [],
           };
           break;
@@ -2974,16 +2976,12 @@ export class EvalancheMCPServer {
           const hyperliquid = await this.agent.hyperliquid();
           const request = { orderId: args.orderId as string };
           await hyperliquid.cancelOrder(request.orderId);
-          const order = await hyperliquid.getOrder(request.orderId);
-          const openOrders = await hyperliquid.getOpenOrders();
+          const verification = await hyperliquid.getOrder(request.orderId);
           result = {
             tool: 'hyperliquid_cancel_order',
             request,
             submission: { status: 'canceled', orderId: request.orderId },
-            verification: {
-              order,
-              openOrders,
-            },
+            verification,
             warnings: [],
           };
           break;
@@ -2993,18 +2991,13 @@ export class EvalancheMCPServer {
           const hyperliquid = await this.agent.hyperliquid();
           const request = { market: args.market as string };
           const submissionOrderId = await hyperliquid.closePosition(request.market);
-          const order = await hyperliquid.getOrder(submissionOrderId);
+          const verification = await hyperliquid.getOrder(submissionOrderId);
           const positions = await hyperliquid.getPositions();
-          const accountState = await hyperliquid.getAccountState();
           result = {
             tool: 'hyperliquid_close_position',
             request,
             submission: { orderId: submissionOrderId, status: 'submitted' },
-            verification: {
-              order,
-              positions,
-              accountState,
-            },
+            verification,
             warnings: [],
             positions,
           };
@@ -3104,14 +3097,11 @@ export class EvalancheMCPServer {
               tool: submission.tool,
             },
             verification: {
-              txHash: submission.txHash,
-              routeId: submission.routeId,
-              tool: submission.tool,
               sourceReceiptStatus: submission.sourceReceiptStatus,
               transferStatus: submission.transferStatus ?? null,
               balances: submission.balances ?? null,
             },
-            warnings: submission.warnings ?? [],
+            warnings: submission.warnings,
             raw: submission,
           };
           break;
@@ -3186,14 +3176,11 @@ export class EvalancheMCPServer {
               tool: submission.tool,
             },
             verification: {
-              txHash: submission.txHash,
-              routeId: submission.routeId,
-              tool: submission.tool,
               sourceReceiptStatus: submission.sourceReceiptStatus,
               transferStatus: submission.transferStatus ?? null,
               balances: submission.balances ?? null,
             },
-            warnings: submission.warnings ?? [],
+            warnings: submission.warnings,
             raw: submission,
           };
           break;
@@ -3562,62 +3549,47 @@ export class EvalancheMCPServer {
         // ── DeFi: Liquid Staking ──────────────────────────────────────────
 
         case 'savax_stake_quote': {
-          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
-          const quote = await defi.staking.sAvaxStakeQuote(args.amountAvax as string);
+          const resolution = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           result = {
-            request: {
-              amountAvax: args.amountAvax as string,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            quote,
+            resolution,
+            quote: await defi.staking.sAvaxStakeQuote(args.amountAvax as string),
           };
           break;
         }
 
         case 'savax_stake': {
-          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const resolution = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           const txResult = await defi.staking.sAvaxStake(
             args.amountAvax as string,
             args.slippageBps as number | undefined,
           );
-          result = {
-            request: {
-              amountAvax: args.amountAvax as string,
-              slippageBps: args.slippageBps as number | undefined,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            hash: txResult.hash,
-            status: txResult.receipt.status,
-          };
+          result = { resolution, hash: txResult.hash, status: txResult.receipt.status };
           break;
         }
 
         case 'savax_unstake_quote': {
-          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const resolution = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           const quote = await defi.staking.sAvaxUnstakeQuote(
             args.shares as string,
             args.slippageBps as number | undefined,
           );
           result = {
+            resolution,
             request: {
               shares: args.shares as string,
               slippageBps: args.slippageBps as number | undefined,
-              network: args.network as string | undefined,
             },
-            resolution: resolved,
             quote,
           };
           break;
         }
 
         case 'savax_unstake': {
-          const resolved = this.resolveSavaxTarget(args.network as string | undefined);
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const resolution = this.resolveSavaxTarget(args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           const forceDelayed = (args.forceDelayed as boolean) ?? false;
           let txResult;
           if (forceDelayed) {
@@ -3628,135 +3600,71 @@ export class EvalancheMCPServer {
               args.slippageBps as number | undefined,
             );
           }
-          result = {
-            request: {
-              shares: args.shares as string,
-              slippageBps: args.slippageBps as number | undefined,
-              forceDelayed,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            hash: txResult.hash,
-            status: txResult.receipt.status,
-          };
+          result = { resolution, hash: txResult.hash, status: txResult.receipt.status };
           break;
         }
 
         // ── DeFi: EIP-4626 Vaults ────────────────────────────────────────
 
         case 'vault_info': {
-          const resolved = this.resolveVaultTarget(
-            args.vaultAddress as string,
-            args.network as string | undefined,
-          );
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
-          const info = await defi.vaults.vaultInfo(resolved.address);
+          const resolution = this.resolveVaultTarget(args.vaultAddress as string, args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           result = {
-            request: {
-              vaultAddress: args.vaultAddress as string,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            info,
+            resolution,
+            vault: await defi.vaults.vaultInfo(resolution.address),
           };
           break;
         }
 
         case 'vault_deposit_quote': {
-          const resolved = this.resolveVaultTarget(
-            args.vaultAddress as string,
-            args.network as string | undefined,
-          );
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
-          const quote = await defi.vaults.depositQuote(
-            resolved.address,
-            args.assetAmount as string,
-            args.assetDecimals as number | undefined,
-          );
+          const resolution = this.resolveVaultTarget(args.vaultAddress as string, args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           result = {
-            request: {
-              vaultAddress: args.vaultAddress as string,
-              assetAmount: args.assetAmount as string,
-              assetDecimals: args.assetDecimals as number | undefined,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            quote,
+            resolution,
+            quote: await defi.vaults.depositQuote(
+              resolution.address,
+              args.assetAmount as string,
+              args.assetDecimals as number | undefined,
+            ),
           };
           break;
         }
 
         case 'vault_deposit': {
-          const resolved = this.resolveVaultTarget(
-            args.vaultAddress as string,
-            args.network as string | undefined,
-          );
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const resolution = this.resolveVaultTarget(args.vaultAddress as string, args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           const txResult = await defi.vaults.deposit(
-            resolved.address,
+            resolution.address,
             args.assetAmount as string,
             args.assetDecimals as number | undefined,
           );
-          result = {
-            request: {
-              vaultAddress: args.vaultAddress as string,
-              assetAmount: args.assetAmount as string,
-              assetDecimals: args.assetDecimals as number | undefined,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            hash: txResult.hash,
-            status: txResult.receipt.status,
-          };
+          result = { resolution, hash: txResult.hash, status: txResult.receipt.status };
           break;
         }
 
         case 'vault_withdraw_quote': {
-          const resolved = this.resolveVaultTarget(
-            args.vaultAddress as string,
-            args.network as string | undefined,
-          );
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
-          const quote = await defi.vaults.withdrawQuote(
-            resolved.address,
-            args.shareAmount as string,
-            args.shareDecimals as number | undefined,
-          );
+          const resolution = this.resolveVaultTarget(args.vaultAddress as string, args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           result = {
-            request: {
-              vaultAddress: args.vaultAddress as string,
-              shareAmount: args.shareAmount as string,
-              shareDecimals: args.shareDecimals as number | undefined,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            quote,
+            resolution,
+            quote: await defi.vaults.withdrawQuote(
+              resolution.address,
+              args.shareAmount as string,
+              args.shareDecimals as number | undefined,
+            ),
           };
           break;
         }
 
         case 'vault_withdraw': {
-          const resolved = this.resolveVaultTarget(
-            args.vaultAddress as string,
-            args.network as string | undefined,
-          );
-          const defi = this.getEvalancheForNetwork(resolved.network).defi();
+          const resolution = this.resolveVaultTarget(args.vaultAddress as string, args.network as string | undefined);
+          const defi = this.getDefiAgentForNetwork(resolution.network).defi();
           const txResult = await defi.vaults.withdraw(
-            resolved.address,
+            resolution.address,
             args.shareAmount as string,
             args.shareDecimals as number | undefined,
           );
-          result = {
-            request: {
-              vaultAddress: args.vaultAddress as string,
-              shareAmount: args.shareAmount as string,
-              shareDecimals: args.shareDecimals as number | undefined,
-              network: args.network as string | undefined,
-            },
-            resolution: resolved,
-            hash: txResult.hash,
-            status: txResult.receipt.status,
-          };
+          result = { resolution, hash: txResult.hash, status: txResult.receipt.status };
           break;
         }
         // ─── CoinGecko Market Data ───
@@ -4211,7 +4119,7 @@ export class EvalancheMCPServer {
                 side: Side.BUY,
                 size,
                 feeRateBps: 0,
-                nonce: this.nextPolymarketNonce(),
+                nonce: 0,
                 tickSize: String(tickSize),
                 negRisk,
               });
@@ -4223,7 +4131,7 @@ export class EvalancheMCPServer {
                 side: Side.BUY,
                 amount: amountUSDC,
                 feeRateBps: 0,
-                nonce: this.nextPolymarketNonce(),
+                nonce: 0,
               });
             }
 
@@ -4249,17 +4157,38 @@ export class EvalancheMCPServer {
             throw new Error(`pm_buy failed: ${msg}${detail}`);
           }
 
-          const orderId = orderResult?.orderID ?? orderResult?.orderIds?.[0] ?? 'unknown';
+          const submissionFailure = this.getPolymarketSubmissionFailure(orderResult);
+          const orderId = this.getPolymarketOrderId(orderResult);
+          if (submissionFailure) {
+            result = {
+              tool: 'pm_buy',
+              request: { conditionId, outcome, amountUSDC, orderType, limitPrice },
+              preflight,
+              submission: {
+                orderID: orderId,
+                status: submissionFailure.status ?? 'rejected',
+                tokenId,
+                outcome,
+                amountUSDC,
+                raw: orderResult,
+                error: submissionFailure,
+              },
+              verification: this.buildSkippedPolymarketVerification(submissionFailure, tokenId),
+              warnings: [...(preflight.warnings ?? []), submissionFailure.message],
+              orderID: orderId,
+              status: submissionFailure.status ?? 'rejected',
+              tokenId,
+              outcome,
+              amountUSDC,
+            };
+            break;
+          }
+
           const verification = await this.reconcilePolymarketVenue({
-            orderId,
+            orderId: orderId ?? undefined,
             tokenId,
             conditionId,
             outcome,
-          });
-          const venueStateUsed = this.buildPolymarketVenueStateSummary({
-            tokenId,
-            balances: preflight.balances,
-            relevantPosition: preflight.positions?.relevantPosition,
           });
 
           result = {
@@ -4272,17 +4201,15 @@ export class EvalancheMCPServer {
               tokenId,
               outcome,
               amountUSDC,
-              venueStateUsed,
               raw: orderResult,
             },
             verification,
-            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
+            warnings: preflight.warnings ?? [],
             orderID: orderId,
             status: orderResult?.status ?? 'SUBMITTED',
             tokenId,
             outcome,
             amountUSDC,
-            venueStateUsed,
           };
           break;
         }
@@ -4381,17 +4308,55 @@ export class EvalancheMCPServer {
             );
           }
 
-          const orderId = orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown';
+          const submissionFailure = this.getPolymarketSubmissionFailure(orderRes);
+          const orderId = this.getPolymarketOrderId(orderRes);
+          if (submissionFailure) {
+            result = {
+              tool: 'pm_sell',
+              request: {
+                conditionId: sellConditionId,
+                outcome: sellOutcome,
+                amountUSDC: sellAmountUSDC,
+                maxSlippagePct: sellMaxSlippagePct,
+              },
+              preflight,
+              submission: {
+                orderID: orderId,
+                status: submissionFailure.status ?? 'rejected',
+                tokenId: sellTokenId,
+                outcome: sellOutcome,
+                size: filledSize,
+                averageFillPrice: avgFillPrice,
+                totalUSDC: filledSize * avgFillPrice,
+                proceedsTargetUSDC: sellAmountUSDC,
+                raw: orderRes,
+                error: submissionFailure,
+              },
+              verification: this.buildSkippedPolymarketVerification(submissionFailure, sellTokenId),
+              warnings: [...(preflight.warnings ?? []), submissionFailure.message],
+              orderID: orderId,
+              status: submissionFailure.status ?? 'rejected',
+              tokenId: sellTokenId,
+              outcome: sellOutcome,
+              size: filledSize,
+              averageFillPrice: avgFillPrice,
+              totalUSDC: filledSize * avgFillPrice,
+              proceedsTargetUSDC: sellAmountUSDC,
+              bestBidAtTime: bestBid,
+              estimatedAveragePrice: estimated.averagePrice,
+              minAcceptablePrice,
+              protectedByLimitOrder: true,
+              orderType: 'FAK',
+              limitPrice,
+            };
+            break;
+          }
+
           const verification = await this.reconcilePolymarketVenue({
-            orderId,
+            orderId: orderId ?? undefined,
             tokenId: sellTokenId,
             conditionId: sellConditionId,
             outcome: sellOutcome,
-          });
-          const venueStateUsed = this.buildPolymarketVenueStateSummary({
-            tokenId: sellTokenId,
-            balances: preflight.balances,
-            relevantPosition: preflight.positions?.relevantPosition,
           });
 
           result = {
@@ -4412,11 +4377,10 @@ export class EvalancheMCPServer {
               averageFillPrice: avgFillPrice,
               totalUSDC: filledSize * avgFillPrice,
               proceedsTargetUSDC: sellAmountUSDC,
-              venueStateUsed,
               raw: orderRes,
             },
             verification,
-            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
+            warnings: preflight.warnings ?? [],
             orderID: orderId,
             status: orderRes?.status ?? 'submitted',
             tokenId: sellTokenId,
@@ -4431,7 +4395,6 @@ export class EvalancheMCPServer {
             protectedByLimitOrder: true,
             orderType: 'FAK',
             limitPrice,
-            venueStateUsed,
           };
           break;
         }
@@ -4585,18 +4548,55 @@ export class EvalancheMCPServer {
             );
           }
 
-          const orderID = orderRes?.orderID ?? orderRes?.orderIds?.[0] ?? 'unknown';
+          const submissionFailure = this.getPolymarketSubmissionFailure(orderRes);
+          const orderID = this.getPolymarketOrderId(orderRes);
+          if (submissionFailure) {
+            result = {
+              tool: 'pm_limit_sell',
+              request: {
+                conditionId: lsConditionId,
+                outcome: lsOutcome,
+                price: lsPrice,
+                shares: lsShares,
+                postOnly: lsPostOnly,
+              },
+              preflight,
+              submission: {
+                orderID,
+                status: submissionFailure.status ?? 'rejected',
+                tokenId: lsTokenId,
+                outcome: lsOutcome,
+                price: lsPrice,
+                shares: lsShares,
+                totalProceeds: lsPrice * lsShares,
+                postOnly: lsPostOnly,
+                orderType: 'GTC',
+                deferExec: lsPostOnly,
+                raw: orderRes,
+                error: submissionFailure,
+              },
+              verification: this.buildSkippedPolymarketVerification(submissionFailure, lsTokenId),
+              warnings: [...(preflight.warnings ?? []), submissionFailure.message],
+              orderID,
+              status: submissionFailure.status ?? 'rejected',
+              tokenId: lsTokenId,
+              outcome: lsOutcome,
+              price: lsPrice,
+              shares: lsShares,
+              totalProceeds: lsPrice * lsShares,
+              postOnly: lsPostOnly,
+              orderType: 'GTC',
+              deferExec: lsPostOnly,
+            };
+            break;
+          }
+
           const orderStatus = orderRes?.status ?? 'POSTED';
           const verification = await this.reconcilePolymarketVenue({
-            orderId: orderID,
+            orderId: orderID ?? undefined,
             tokenId: lsTokenId,
             conditionId: lsConditionId,
             outcome: lsOutcome,
-          });
-          const venueStateUsed = this.buildPolymarketVenueStateSummary({
-            tokenId: lsTokenId,
-            balances: preflight.balances,
-            relevantPosition: preflight.positions?.relevantPosition,
           });
 
           result = {
@@ -4620,11 +4620,10 @@ export class EvalancheMCPServer {
               postOnly: lsPostOnly,
               orderType: 'GTC',
               deferExec: lsPostOnly,
-              venueStateUsed,
               raw: orderRes,
             },
             verification,
-            warnings: [...(preflight.warnings ?? []), ...(venueStateUsed.warning ? [venueStateUsed.warning] : [])],
+            warnings: preflight.warnings ?? [],
             orderID,
             status: orderStatus,
             tokenId: lsTokenId,
@@ -4635,7 +4634,6 @@ export class EvalancheMCPServer {
             postOnly: lsPostOnly,
             orderType: 'GTC',
             deferExec: lsPostOnly, // true = post to book only (no AMM hit)
-            venueStateUsed,
           };
           break;
         }

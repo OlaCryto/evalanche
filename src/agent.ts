@@ -195,7 +195,9 @@ export class Evalanche {
     this._networkOption = config.network ?? 'avalanche';
     const networkConfig = getNetworkConfig(this._networkOption);
     const rpcUrl = config.rpcOverride ?? networkConfig.rpcUrl;
-    this.provider = new JsonRpcProvider(rpcUrl);
+    // Public RPCs such as Base can behave unpredictably with batched eth_call requests.
+    // Disable batching so execution/quote paths stay deterministic across providers.
+    this.provider = new JsonRpcProvider(rpcUrl, undefined, { batchMaxCount: 1 });
     this._chainId = networkConfig.chainId;
 
     if (config.privateKey) {
@@ -623,8 +625,7 @@ export class Evalanche {
     if (!this._defiStaking) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { LiquidStakingClient: LSC } = require('./defi/liquid-staking') as typeof import('./defi/liquid-staking');
-      const networkName = typeof this._networkOption === 'string' ? this._networkOption : 'ethereum';
-      this._defiStaking = new LSC(this.wallet, networkName);
+      this._defiStaking = new LSC(this.wallet);
     }
     if (!this._defiVaults) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires

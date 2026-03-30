@@ -94,6 +94,20 @@ interface GammaMarketRecord extends Record<string, unknown> {
   volume?: string | number;
 }
 
+interface ClobMarketRecord extends Record<string, unknown> {
+  condition_id?: string;
+  conditionId?: string;
+  question?: string;
+  description?: string;
+  start_date_iso?: string;
+  end_date_iso?: string;
+  active?: boolean;
+  closed?: boolean;
+  archived?: boolean;
+  accepting_orders?: boolean;
+  tokens?: unknown[];
+}
+
 function polymarketHeaders(): Record<string, string> {
   return {
     Accept: 'application/json',
@@ -147,7 +161,7 @@ function normalizeMarketRecord(record: GammaMarketRecord): PolymarketMarket {
   };
 }
 
-function normalizeClobMarket(record: Record<string, unknown>): PolymarketMarket {
+function normalizeClobMarket(record: ClobMarketRecord): PolymarketMarket {
   const conditionId = String(record.condition_id ?? record.conditionId ?? '');
   const tokensRaw = Array.isArray(record.tokens) ? record.tokens : [];
   const tokens: PolymarketToken[] = tokensRaw.map((token) => {
@@ -169,6 +183,35 @@ function normalizeClobMarket(record: Record<string, unknown>): PolymarketMarket 
     endDate: typeof record.end_date_iso === 'string' ? String(record.end_date_iso) : undefined,
     tokens,
   };
+}
+
+function hasSearchableMarketIdentity(market: PolymarketMarket): boolean {
+  return market.conditionId.trim().length > 0 && market.question.trim().length > 0;
+}
+
+function hasTradeableTokens(market: PolymarketMarket): boolean {
+  return market.tokens.some((token) => token.tokenId.trim().length > 0 && token.outcome.trim().length > 0);
+}
+
+function isFutureOrUnknown(dateValue: string | undefined): boolean {
+  if (!dateValue) return true;
+  const timestamp = Date.parse(dateValue);
+  if (!Number.isFinite(timestamp)) return true;
+  return timestamp > Date.now();
+}
+
+function isSearchableGammaMarket(record: GammaMarketRecord): boolean {
+  return hasSearchableMarketIdentity(normalizeMarketRecord(record)) && isFutureOrUnknown(
+    typeof record.endDate === 'string' ? record.endDate : undefined,
+  );
+}
+
+function isLiveClobMarket(record: ClobMarketRecord): boolean {
+  if (record.closed === true || record.archived === true) return false;
+  if (record.active === false || record.accepting_orders === false) return false;
+
+  const market = normalizeClobMarket(record);
+  return hasSearchableMarketIdentity(market) && hasTradeableTokens(market) && isFutureOrUnknown(market.endDate);
 }
 
 export class PolymarketClient {
@@ -211,6 +254,43 @@ export class PolymarketClient {
     }
   }
 
+  private async getLiveMarketsPage(options?: { limit?: number; cursor?: string }): Promise<{
+    markets: PolymarketMarket[];
+    nextCursor?: string;
+  }> {
+    const limit = Math.min(options?.limit ?? 100, 500);
+
+    try {
+      const url = new URL('/markets', POLYMARKET_CLOB_HOST);
+      url.searchParams.set('limit', String(limit));
+      if (options?.cursor) url.searchParams.set('cursor', options.cursor);
+
+      const response = await safeFetch(url.toString(), {
+        headers: polymarketHeaders(),
+        timeoutMs: 12_000,
+        maxBytes: 2_000_000,
+      });
+
+      if (response.ok) {
+        const payload = await response.json() as { data?: ClobMarketRecord[]; next_cursor?: string };
+        const records = Array.isArray(payload.data) ? payload.data : [];
+        return {
+          markets: records.filter(isLiveClobMarket).map(normalizeClobMarket),
+          nextCursor: typeof payload.next_cursor === 'string' && payload.next_cursor.length > 0
+            ? payload.next_cursor
+            : undefined,
+        };
+      }
+    } catch {
+      // Fall through to Gamma fallback
+    }
+
+    return {
+      markets: await this.getMarkets({ limit, closed: false, cursor: options?.cursor }),
+      nextCursor: undefined,
+    };
+  }
+
   async getMarkets(options?: { limit?: number; closed?: boolean; cursor?: string }): Promise<PolymarketMarket[]> {
     const limit = Math.min(options?.limit ?? 100, 500);
     const url = new URL('/markets', POLYMARKET_GAMMA_HOST);
@@ -232,8 +312,11 @@ export class PolymarketClient {
         );
       }
 
-      const records = await response.json() as GammaMarketRecord[];
-      return records.map(normalizeMarketRecord);
+      const payload = await response.json() as unknown;
+      const records = Array.isArray(payload) ? payload as GammaMarketRecord[] : [];
+      return records
+        .filter(isSearchableGammaMarket)
+        .map(normalizeMarketRecord);
     } catch (error) {
       throw new EvalancheError(
         `Failed to fetch markets: ${error instanceof Error ? error.message : String(error)}`,
@@ -248,31 +331,8 @@ export class PolymarketClient {
    * Falls back to Gamma if CLOB is unavailable.
    */
   async getLiveMarkets(options?: { limit?: number; cursor?: string }): Promise<PolymarketMarket[]> {
-    const limit = Math.min(options?.limit ?? 100, 500);
-
-    // Try CLOB /markets endpoint first
-    try {
-      const url = new URL('/markets', POLYMARKET_CLOB_HOST);
-      url.searchParams.set('limit', String(limit));
-      if (options?.cursor) url.searchParams.set('cursor', options.cursor);
-
-      const response = await safeFetch(url.toString(), {
-        headers: polymarketHeaders(),
-        timeoutMs: 12_000,
-        maxBytes: 2_000_000,
-      });
-
-      if (response.ok) {
-        const payload = await response.json() as { data?: Record<string, unknown>[]; next_cursor?: string };
-        const records = payload.data ?? [];
-        return records.map(normalizeClobMarket);
-      }
-    } catch {
-      // Fall through to Gamma fallback
-    }
-
-    // Gamma fallback (may return stale/historical data)
-    return this.getMarkets({ limit, closed: false, cursor: options?.cursor });
+    const { markets } = await this.getLiveMarketsPage(options);
+    return markets;
   }
 
   async searchMarkets(query: string, limit = 10): Promise<PolymarketMarket[]> {
@@ -285,24 +345,26 @@ export class PolymarketClient {
     const seen = new Set<string>();
 
     // Try CLOB live markets first (active, current markets)
+    let cursor: string | undefined;
     for (let page = 0; page < maxPages && matches.length < limit; page++) {
-      const markets = await this.getLiveMarkets({
+      const { markets, nextCursor } = await this.getLiveMarketsPage({
         limit: pageSize,
-        cursor: page === 0 ? undefined : (matches.length > 0 ? undefined : undefined),
+        cursor,
       });
 
       if (markets.length === 0) break;
 
       for (const market of markets) {
         const haystack = `${market.question} ${market.description ?? ''}`.toLowerCase();
-        if (haystack.includes(q) && !seen.has(market.conditionId)) {
+        if (haystack.includes(q) && hasSearchableMarketIdentity(market) && !seen.has(market.conditionId)) {
           matches.push(market);
           seen.add(market.conditionId);
         }
         if (matches.length >= limit) break;
       }
 
-      if (markets.length < pageSize) break;
+      if (!nextCursor) break;
+      cursor = nextCursor;
     }
 
     // If CLOB returned nothing, try Gamma (includes historical/closed markets)
@@ -318,7 +380,7 @@ export class PolymarketClient {
 
         for (const market of markets) {
           const haystack = `${market.question} ${market.description ?? ''}`.toLowerCase();
-          if (haystack.includes(q) && !seen.has(market.conditionId)) {
+          if (haystack.includes(q) && hasSearchableMarketIdentity(market) && !seen.has(market.conditionId)) {
             matches.push(market);
             seen.add(market.conditionId);
           }

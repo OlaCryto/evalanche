@@ -101,6 +101,27 @@ describe('VaultClient', () => {
     expect(info.totalAssets).toBe(formatUnits(TOTAL_ASSETS, ASSET_DECIMALS));
   });
 
+  it('loads metadata sequentially so flaky RPCs do not break deposit quotes', async () => {
+    let nameResolved = false;
+    vaultContractMock = makeVaultContractMock({
+      name: vi.fn().mockImplementation(async () => {
+        await Promise.resolve();
+        nameResolved = true;
+        return 'yoUSD Vault';
+      }),
+      asset: vi.fn().mockImplementation(async () => {
+        if (!nameResolved) throw new Error('concurrent metadata read');
+        return USDC_ASSET;
+      }),
+    });
+
+    const client = new VaultClient(makeMockSigner(), 'base');
+    const quote = await client.depositQuote(YOUSD_VAULT, '1000');
+
+    expect(quote.shares).toBe(formatUnits(EXPECTED_SHARES, SHARE_DECIMALS));
+    expect(vaultContractMock.asset).toHaveBeenCalledTimes(1);
+  });
+
   it('returns expected shares using asset decimals, not share decimals', async () => {
     const client = new VaultClient(makeMockSigner(), 'base');
     const quote = await client.depositQuote(YOUSD_VAULT, '1000');

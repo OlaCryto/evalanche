@@ -233,6 +233,55 @@ describe('HyperliquidClient', () => {
     expect(execution.averageFillPrice).toBe('100200');
   });
 
+  it('rounds market-order prices to Hyperliquid precision rules for low-priced markets', async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ([
+          {
+            universe: [{ name: 'ATOM', asset: 2, maxLeverage: 5, marginTableId: 5, szDecimals: 2 }],
+          },
+          [{ oraclePx: '1.6855', dayNtlVlm: '1000000', openInterest: '100' }],
+        ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          coin: 'ATOM',
+          time: 1000,
+          levels: [
+            [{ px: '1.68', sz: '100', n: 1 }],
+            [{ px: '1.6855', sz: '100', n: 1 }],
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          status: 'ok',
+          response: {
+            type: 'order',
+            data: {
+              statuses: [{ filled: { oid: 778, totalSz: '1.00', avgPx: '1.7361' } }],
+            },
+          },
+        }),
+      });
+
+    const client = new HyperliquidClient({ address: mockSigner.address, signer: mockSigner });
+    const execution = await client.placeMarketOrderDetailed({
+      market: 'ATOM',
+      side: 'BUY',
+      size: '1',
+    });
+
+    expect(execution.orderId).toBe('778');
+    const exchangeCall = mockFetch.mock.calls[2];
+    const body = JSON.parse(String(exchangeCall?.[1]?.body ?? '{}'));
+    expect(body.action.orders[0].p).toBe('1.7361');
+    expect(body.action.orders[0].s).toBe('1');
+  });
+
   it('cancels an order using its market asset id', async () => {
     mockFetch
       .mockResolvedValueOnce({

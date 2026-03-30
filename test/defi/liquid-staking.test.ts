@@ -25,10 +25,7 @@ import { LiquidStakingClient, SAVAX_CONTRACT } from '../../src/defi/liquid-staki
 function makeMockSigner() {
   return {
     address: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
-    provider: {
-      _isProvider: true,
-      getCode: vi.fn().mockResolvedValue('0x1234'),
-    },
+    provider: { _isProvider: true },
   } as unknown as ConstructorParameters<typeof LiquidStakingClient>[0];
 }
 
@@ -166,12 +163,17 @@ describe('LiquidStakingClient.sAvaxUnstakeQuote', () => {
     });
   });
 
-  it('fails clearly when called on a non-Avalanche chain', async () => {
-    const client = new LiquidStakingClient(makeMockSigner(), 'base');
-    await expect(client.sAvaxUnstakeQuote('10')).rejects.toMatchObject({
-      code: EvalancheErrorCode.STAKING_ERROR,
-      message: expect.stringContaining('only available on avalanche'),
+  it('degrades to delayed-only when instant pool balance reverts', async () => {
+    contractMock = makeContractMock({
+      instantPoolBalance: vi.fn().mockRejectedValue(new Error('require(false)')),
     });
+
+    const client = new LiquidStakingClient(makeMockSigner());
+    const quote = await client.sAvaxUnstakeQuote('10');
+
+    expect(quote.isInstant).toBe(false);
+    expect(quote.poolBalance).toBe('0.0');
+    expect(quote.avaxOut).toBe(formatEther(EXPECTED_AVAX_BACK));
   });
 });
 

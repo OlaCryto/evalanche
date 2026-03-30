@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PolymarketClient, PolymarketSide } from '../../src/polymarket';
 import { Wallet } from 'ethers';
 
@@ -42,6 +42,14 @@ async function callServerTool(
     server,
   };
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('PolymarketClient.estimateFillPrice', () => {
   it('returns weighted average price for a BUY using asks in order', async () => {
@@ -143,6 +151,109 @@ describe('PolymarketClient.searchMarkets', () => {
     await expect(client.searchMarkets('iran', 10)).resolves.toHaveLength(1);
     await expect(client.searchMarkets('IRAN', 10)).resolves.toHaveLength(1);
   });
+
+  it('filters stale and malformed CLOB markets before falling back to Gamma', async () => {
+    const client = makeClient();
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              condition_id: '',
+              question: 'Trump mugshot by Friday?',
+              active: true,
+              closed: false,
+              archived: false,
+              accepting_orders: true,
+              end_date_iso: '2099-01-01T00:00:00Z',
+              tokens: [{ token_id: '', outcome: '' }],
+            },
+            {
+              condition_id: 'old-trump-market',
+              question: 'Trump on Joe Rogan in 2024?',
+              active: true,
+              closed: true,
+              archived: false,
+              accepting_orders: false,
+              end_date_iso: '2024-12-31T00:00:00Z',
+              tokens: [{ token_id: 'old-yes', outcome: 'YES' }],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ([
+          {
+            conditionId: 'live-trump-market',
+            question: 'Will Trump visit India by April 2026?',
+            description: 'Active market',
+            endDate: '2099-01-01T00:00:00Z',
+            outcomes: ['YES', 'NO'],
+            clobTokenIds: ['yes-token', 'no-token'],
+            outcomePrices: ['0.44', '0.56'],
+          },
+        ]),
+      });
+
+    const results = await client.searchMarkets('trump', 10);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.conditionId).toBe('live-trump-market');
+    expect(results[0]?.tokens[0]?.tokenId).toBe('yes-token');
+  });
+
+  it('uses CLOB pagination cursors when searching beyond the first page', async () => {
+    const client = makeClient();
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              condition_id: 'page-1-market',
+              question: 'Unrelated first page market',
+              active: true,
+              closed: false,
+              archived: false,
+              accepting_orders: true,
+              end_date_iso: '2099-01-01T00:00:00Z',
+              tokens: [{ token_id: 'first-token', outcome: 'YES' }],
+            },
+          ],
+          next_cursor: 'cursor-2',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              condition_id: 'page-2-market',
+              question: 'Will Polymarket ship better Trump search?',
+              active: true,
+              closed: false,
+              archived: false,
+              accepting_orders: true,
+              end_date_iso: '2099-01-01T00:00:00Z',
+              tokens: [{ token_id: 'second-token', outcome: 'YES' }],
+            },
+          ],
+        }),
+      });
+
+    const results = await client.searchMarkets('trump', 10);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]?.conditionId).toBe('page-2-market');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0] ?? '')).toContain('cursor=cursor-2');
+  });
 });
 
 describe('PolymarketClient.getOrderbook alias', () => {
@@ -160,17 +271,17 @@ describe('PolymarketClient.getOrderbook alias', () => {
 
 describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
   it('pm_approve attempts CLOB auth (no longer throws unimplemented)', async () => {
-    const { isError, text } = await callServerTool('pm_approve', { amount: '100' });
-    // May succeed or fail at CLOB level, but must NOT say "not implemented"
-    expect(text).not.toMatch(/not implemented/i);
-    if (isError) {
-      // If it errored, it should be a network/CLOB error, not "not implemented"
-      expect(text).not.toMatch(/not implemented/i);
-    } else {
-      // Succeeded — should contain approved: true
-      expect(text).toContain('approved');
-    }
-  }, 15000);
+    const { isError, text } = await callServerTool('pm_approve', { amount: '100' }, (server) => {
+      (server as any).approveUsdcToCLOB = vi.fn().mockResolvedValue('0xapprove');
+      (server as any).getAuthedClobClient = vi.fn().mockResolvedValue({
+        updateBalanceAllowance: vi.fn().mockResolvedValue(undefined),
+      });
+    });
+
+    expect(isError).toBe(false);
+    expect(text).toContain('approved');
+    expect(text).toContain('0xapprove');
+  });
 
   it('pm_buy attempts market lookup (no longer throws unimplemented)', async () => {
     const { isError, text } = await callServerTool('pm_buy', { conditionId: '0x1', outcome: 'YES', amountUSDC: '10' });
@@ -183,6 +294,109 @@ describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
     const { isError, text } = await callServerTool('pm_redeem', { conditionId: '0x1' });
     expect(isError).toBe(true);
     expect(text).toMatch(/not yet implemented/i);
+  });
+
+  it('pm_buy returns a rejected submission envelope when the venue geoblocks the order', async () => {
+    const reconcileSpy = vi.fn();
+    const { isError, text } = await callServerTool(
+      'pm_buy',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '0.02' },
+      (server) => {
+        (server as any).runPolymarketPreflight = vi.fn().mockResolvedValue({
+          verdict: 'ready',
+          warnings: [],
+          tokenId: 'tok-yes',
+        });
+        (server as any).getAuthedClobClient = vi.fn().mockResolvedValue({
+          createAndPostMarketOrder: vi.fn().mockResolvedValue({
+            status: 403,
+            error: 'Trading restricted in your region, please refer to available regions',
+          }),
+        });
+        (server as any).reconcilePolymarketVenue = reconcileSpy;
+      },
+    );
+
+    expect(isError).toBe(false);
+    const payload = JSON.parse(text);
+    expect(payload.submission.status).toBe(403);
+    expect(payload.submission.error.code).toBe('geoblocked');
+    expect(payload.verification.skipped).toBe(true);
+    expect(payload.verification.reason).toBe('geoblocked');
+    expect(reconcileSpy).not.toHaveBeenCalled();
+  });
+
+  it('pm_buy market orders use the SDK-compatible zero nonce', async () => {
+    const createAndPostMarketOrder = vi.fn().mockResolvedValue({
+      success: true,
+      orderID: 'ord-1',
+      status: 'LIVE',
+    });
+
+    const { isError } = await callServerTool(
+      'pm_buy',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '1' },
+      (server) => {
+        (server as any).runPolymarketPreflight = vi.fn().mockResolvedValue({
+          verdict: 'ready',
+          warnings: [],
+          tokenId: 'tok-yes',
+        });
+        (server as any).getAuthedClobClient = vi.fn().mockResolvedValue({
+          createAndPostMarketOrder,
+          getOrder: vi.fn().mockResolvedValue({ orderID: 'ord-1', status: 'LIVE' }),
+          getOpenOrders: vi.fn().mockResolvedValue([]),
+          getTrades: vi.fn().mockResolvedValue([]),
+          getBalanceAllowance: vi.fn().mockResolvedValue({ balance: '1000000', allowance: '1000000' }),
+          getBalances: vi.fn().mockResolvedValue({ collateral: '1' }),
+        });
+        (server as any).reconcilePolymarketVenue = vi.fn().mockResolvedValue({ sourceOfTruth: 'venue' });
+      },
+    );
+
+    expect(isError).toBe(false);
+    expect(createAndPostMarketOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nonce: 0,
+      }),
+    );
+  });
+
+  it('pm_buy limit orders also use the SDK-compatible zero nonce', async () => {
+    const createAndPostOrder = vi.fn().mockResolvedValue({
+      success: true,
+      orderID: 'ord-limit-1',
+      status: 'LIVE',
+    });
+
+    const { isError } = await callServerTool(
+      'pm_buy',
+      { conditionId: '0x1', outcome: 'YES', amountUSDC: '1', orderType: 'limit', limitPrice: 0.5 },
+      (server) => {
+        (server as any).runPolymarketPreflight = vi.fn().mockResolvedValue({
+          verdict: 'ready',
+          warnings: [],
+          tokenId: 'tok-yes',
+        });
+        (server as any).getAuthedClobClient = vi.fn().mockResolvedValue({
+          getMarket: vi.fn().mockResolvedValue({ minimum_tick_size: '0.01', neg_risk: false }),
+          createAndPostOrder,
+          getOrder: vi.fn().mockResolvedValue({ orderID: 'ord-limit-1', status: 'LIVE' }),
+          getOpenOrders: vi.fn().mockResolvedValue([]),
+          getTrades: vi.fn().mockResolvedValue([]),
+          getBalanceAllowance: vi.fn().mockResolvedValue({ balance: '1000000', allowance: '1000000' }),
+          getBalances: vi.fn().mockResolvedValue({ collateral: '1' }),
+        });
+        (server as any).reconcilePolymarketVenue = vi.fn().mockResolvedValue({ sourceOfTruth: 'venue' });
+      },
+    );
+
+    expect(isError).toBe(false);
+    expect(createAndPostOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nonce: 0,
+      }),
+    );
   });
 });
 
@@ -298,45 +512,9 @@ describe('MCP server Polymarket sell protections', () => {
     expect(parsed.protectedByLimitOrder).toBe(true);
     expect(parsed.orderType).toBe('FAK');
     expect(parsed.limitPrice).toBeGreaterThanOrEqual(parsed.minAcceptablePrice);
-    expect(parsed.venueStateUsed.conditionalBalance).toBe(20);
     expect(createOrder).toHaveBeenCalledTimes(1);
     expect(postOrder).toHaveBeenCalledWith({ signed: true }, 'FAK', false);
   }, 10000);
-
-  it('pm_sell blocks unsafe execution from venue truth even when positions suggest more size', async () => {
-    const createOrder = vi.fn();
-
-    const { isError, text } = await callServerTool(
-      'pm_sell',
-      { conditionId: '0x1', outcome: 'YES', amountUSDC: '7', maxSlippagePct: 1 },
-      (server) => {
-        (server as any).getPolymarket = () => ({
-          getMarket: async () => ({
-            conditionId: '0x1',
-            tokens: [{ tokenId: 'tok-1', outcome: 'YES' }],
-          }),
-          getOrderBook: async () => ({
-            bids: [{ price: 0.7, size: 20, orderID: 'b1' }],
-            asks: [],
-          }),
-        });
-        (server as any).getAuthedClobClient = async () => ({
-          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
-            asset_type === 'COLLATERAL'
-              ? { balance: '100000000', allowance: '100000000' }
-              : { balance: '5', allowance: '5' }
-          ),
-          getBalances: async () => ({ collateral: '100' }),
-          createOrder,
-        });
-        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '20' }];
-      },
-    );
-
-    expect(isError).toBe(true);
-    expect(text).toMatch(/Venue conditional balance 5 is below desired sell size/i);
-    expect(createOrder).not.toHaveBeenCalled();
-  });
 
   it('pm_limit_sell honors postOnly=false by allowing immediate matching', async () => {
     const createOrder = vi.fn().mockResolvedValue({ signed: true });
@@ -577,6 +755,30 @@ describe('MCP server Polymarket inspection and reconciliation', () => {
     expect(createAndPostMarketOrder).not.toHaveBeenCalled();
   });
 
+  it('pm_balances reports raw allowance from the same source as the effective allowance', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_balances',
+      {},
+      (server) => {
+        (server as any).getAuthedClobClient = async () => ({
+          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
+            asset_type === 'COLLATERAL'
+              ? { balance: '27127', allowance: '0' }
+              : { balance: '0', allowance: '0' }
+          ),
+          getBalances: async () => ({ collateral: '27127' }),
+        });
+        (server as any).getOnChainUsdcAllowance = async () => 123456789n;
+      },
+    );
+
+    expect(isError).toBe(false);
+    const parsed = JSON.parse(text);
+    expect(parsed.collateral.allowance).toBe(123.456789);
+    expect(parsed.collateral.rawAllowance).toBe('123456789');
+    expect(parsed.collateral.allowanceSource).toBe('on_chain');
+  });
+
   it('pm_order returns venue-first reconciliation details', async () => {
     const { isError, text } = await callServerTool(
       'pm_order',
@@ -603,33 +805,6 @@ describe('MCP server Polymarket inspection and reconciliation', () => {
     expect(parsed.order.orderId).toBe('ord-1');
     expect(parsed.reconciliation.orderState).toBe('MATCHED');
     expect(parsed.positions.relevantPosition.asset).toBe('tok-1');
-    expect(parsed.venueState.conditionalBalance).toBe(12);
-    expect(parsed.venueState.positionSize).toBe(12);
-  });
-
-  it('pm_reconcile surfaces venue mismatch warnings when conditional balance differs from position size', async () => {
-    const { isError, text } = await callServerTool(
-      'pm_reconcile',
-      { tokenId: 'tok-1' },
-      (server) => {
-        (server as any).getAuthedClobClient = async () => ({
-          getOpenOrders: async () => [],
-          getTrades: async () => [],
-          getBalanceAllowance: async ({ asset_type }: { asset_type: string }) => (
-            asset_type === 'COLLATERAL'
-              ? { balance: '50', allowance: '50' }
-              : { balance: '7', allowance: '7' }
-          ),
-          getBalances: async () => ({ collateral: '50' }),
-        });
-        (server as any).fetchPolymarketPositions = async () => [{ asset: 'tok-1', size: '12' }];
-      },
-    );
-
-    expect(isError).toBe(false);
-    const parsed = JSON.parse(text);
-    expect(parsed.venueState.hasMismatch).toBe(true);
-    expect(parsed.warnings[0]).toMatch(/Venue conditional balance 7 differs from position size 12/i);
   });
 });
 

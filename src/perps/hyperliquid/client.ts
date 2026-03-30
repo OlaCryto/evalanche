@@ -310,8 +310,8 @@ export class HyperliquidClient implements PerpVenue {
         {
           a: Number(args.market.marketId),
           b: args.side === 'BUY',
-          p: this.normalizeDecimal(args.price),
-          s: this.normalizeDecimal(args.size),
+          p: this.normalizePrice(args.market, args.price),
+          s: this.normalizeSize(args.market, args.size),
           r: args.reduceOnly,
           t: { limit: { tif: args.tif } },
         },
@@ -376,8 +376,8 @@ export class HyperliquidClient implements PerpVenue {
     return 'Gtc';
   }
 
-  private normalizeDecimal(value: string): string {
-    const normalized = String(Number(value));
+  private normalizeDecimal(value: string): number {
+    const normalized = Number(value);
     if (!Number.isFinite(Number(normalized)) || Number(normalized) <= 0) {
       throw new EvalancheError(
         `Invalid Hyperliquid decimal value: ${value}`,
@@ -385,6 +385,29 @@ export class HyperliquidClient implements PerpVenue {
       );
     }
     return normalized;
+  }
+
+  private normalizePrice(market: HyperliquidMarket, value: string): string {
+    const normalized = this.normalizeDecimal(value);
+    if (Number.isInteger(normalized)) return String(normalized);
+
+    const sizeDecimals = market.metadata.sizeDecimals ?? 0;
+    const maxDecimals = Math.max(0, 6 - sizeDecimals);
+    const rounded = Number(normalized.toPrecision(5));
+    return this.trimTrailingZeros(rounded.toFixed(maxDecimals));
+  }
+
+  private normalizeSize(market: HyperliquidMarket, value: string): string {
+    const normalized = this.normalizeDecimal(value);
+    const decimals = Math.max(0, market.metadata.sizeDecimals ?? 0);
+    return this.trimTrailingZeros(normalized.toFixed(decimals));
+  }
+
+  private trimTrailingZeros(value: string): string {
+    return value
+      .replace(/(\.\d*?[1-9])0+$/u, '$1')
+      .replace(/\.0+$/u, '')
+      .replace(/\.$/u, '');
   }
 
   private ensureTradingSigner(): AgentSigner {
