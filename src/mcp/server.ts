@@ -64,6 +64,49 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'get_holdings',
+    description: 'Scan the wallet for liquid holdings across native balances, seeded ERC-20s, DeFi positions, Polymarket positions, and perp venue positions.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        walletAddress: { type: 'string', description: 'Wallet address override (defaults to agent wallet)' },
+        chains: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional chain or venue filters (e.g. ["polygon","base","avalanche","hyperliquid"])',
+        },
+        include: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional categories to include: native, token, defi, prediction, perp',
+        },
+        protocols: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional protocol filters (e.g. ["yousd","polymarket","hyperliquid"])',
+        },
+      },
+    },
+  },
+  {
+    name: 'search_registry',
+    description: 'Search the universal in-repo holdings registry for protocols, assets, and position sources.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Free-text search query' },
+        chain: { type: 'string', description: 'Optional chain filter' },
+        category: { type: 'string', description: 'Optional category filter' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'registry_status',
+    description: 'Get counts and detector coverage for the universal holdings registry.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
     name: 'resolve_identity',
     description: 'Resolve the ERC-8004 on-chain identity for this agent, including reputation score and trust level',
     inputSchema: { type: 'object', properties: {} },
@@ -2507,7 +2550,7 @@ export class EvalancheMCPServer {
             capabilities: { tools: {} },
             serverInfo: {
               name: 'evalanche',
-              version: '1.8.0',
+              version: '1.8.8',
             },
           });
 
@@ -2559,6 +2602,26 @@ export class EvalancheMCPServer {
           result = { address: addr, balance: formatEther(balance), unit: symbol };
           break;
         }
+
+        case 'get_holdings':
+          result = await this.agent.holdings().scan({
+            walletAddress: typeof args.walletAddress === 'string' ? args.walletAddress : undefined,
+            chains: Array.isArray(args.chains) ? args.chains as any : undefined,
+            include: Array.isArray(args.include) ? args.include as any : undefined,
+            protocols: Array.isArray(args.protocols) ? args.protocols as string[] : undefined,
+          });
+          break;
+
+        case 'search_registry':
+          result = this.agent.holdings().getRegistry().search(String(args.query ?? ''), {
+            chain: typeof args.chain === 'string' ? args.chain : undefined,
+            category: typeof args.category === 'string' ? args.category : undefined,
+          });
+          break;
+
+        case 'registry_status':
+          result = this.agent.holdings().getRegistry().status();
+          break;
 
         case 'resolve_identity':
           result = await this.agent.resolveIdentity();

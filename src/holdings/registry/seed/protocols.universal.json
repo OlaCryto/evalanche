@@ -1,0 +1,92 @@
+[
+  {
+    "protocolId": "circle-usdc",
+    "name": "USDC",
+    "slug": "usdc",
+    "category": "token",
+    "chains": ["ethereum", "base", "arbitrum", "optimism", "polygon", "avalanche"],
+    "website": "https://www.circle.com/usdc",
+    "aliases": ["usdc", "usd-coin"],
+    "source": "local"
+  },
+  {
+    "protocolId": "wrapped-ether",
+    "name": "Wrapped Ether",
+    "slug": "weth",
+    "category": "token",
+    "chains": ["ethereum", "base", "arbitrum", "optimism"],
+    "website": "https://weth.io",
+    "aliases": ["weth", "wrapped-ether"],
+    "source": "local"
+  },
+  {
+    "protocolId": "avantis",
+    "name": "Avantis",
+    "slug": "avantis",
+    "category": "vault",
+    "chains": ["base"],
+    "website": "https://www.avantisfi.com",
+    "aliases": ["avantis", "avusdc"],
+    "source": "local"
+  },
+  {
+    "protocolId": "yousd-vault",
+    "name": "yoUSD Vault",
+    "slug": "yo-usd-vault",
+    "category": "vault",
+    "chains": ["base"],
+    "website": "https://www.yo.xyz",
+    "aliases": ["yo", "yousd", "yousd-vault"],
+    "source": "local"
+  },
+  {
+    "protocolId": "benqi",
+    "name": "sAVAX",
+    "slug": "savax",
+    "category": "staking",
+    "chains": ["avalanche"],
+    "website": "https://benqi.fi",
+    "aliases": ["benqi", "savax", "benqi-savax"],
+    "source": "local"
+  },
+  {
+    "protocolId": "benqi-lending",
+    "name": "Benqi Lending",
+    "slug": "benqi-lending",
+    "category": "lending",
+    "chains": ["avalanche"],
+    "website": "https://benqi.fi",
+    "aliases": ["benqi-lending", "qiusdc", "qiavax"],
+    "source": "avapilot"
+  },
+  {
+    "protocolId": "polymarket",
+    "name": "Polymarket",
+    "slug": "polymarket",
+    "category": "prediction",
+    "chains": ["polygon"],
+    "website": "https://polymarket.com",
+    "aliases": ["polymarket", "pm"],
+    "source": "local"
+  },
+  {
+    "protocolId": "hyperliquid",
+    "name": "Hyperliquid",
+    "slug": "hyperliquid",
+    "category": "perp",
+    "chains": ["hyperliquid"],
+    "website": "https://hyperliquid.xyz",
+    "aliases": ["hyperliquid", "hl"],
+    "source": "defillama"
+  },
+  {
+    "protocolId": "dydx",
+    "name": "dYdX",
+    "slug": "dydx",
+    "category": "perp",
+    "chains": ["dydx"],
+    "website": "https://dydx.trade",
+    "aliases": ["dydx", "dydx-v4"],
+    "source": "defillama"
+  }
+]

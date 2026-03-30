@@ -1,0 +1,112 @@
+[
+  {
+    "assetId": "polygon-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "polygon",
+    "address": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "base-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "base",
+    "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "arbitrum-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "arbitrum",
+    "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "optimism-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "optimism",
+    "address": "0x0b2C639c533813f4Aa9D7837CaF62653d097Ff85",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "ethereum-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "ethereum",
+    "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "avalanche-usdc",
+    "protocolId": "circle-usdc",
+    "chain": "avalanche",
+    "address": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+    "symbol": "USDC",
+    "decimals": 6,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "base-weth",
+    "protocolId": "wrapped-ether",
+    "chain": "base",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "decimals": 18,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "arbitrum-weth",
+    "protocolId": "wrapped-ether",
+    "chain": "arbitrum",
+    "address": "0x82af49447d8a07e3bd95bd0d56f35241523fbab1",
+    "symbol": "WETH",
+    "decimals": 18,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "optimism-weth",
+    "protocolId": "wrapped-ether",
+    "chain": "optimism",
+    "address": "0x4200000000000000000000000000000000000006",
+    "symbol": "WETH",
+    "decimals": 18,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "ethereum-weth",
+    "protocolId": "wrapped-ether",
+    "chain": "ethereum",
+    "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    "symbol": "WETH",
+    "decimals": 18,
+    "assetType": "erc20",
+    "source": "local"
+  },
+  {
+    "assetId": "base-avnt",
+    "protocolId": "avantis",
+    "chain": "base",
+    "address": "0x696F9436B67233384889472Cd7cD58A6fB5DF4f1",
+    "symbol": "AVNT",
+    "decimals": 18,
+    "assetType": "erc20",
+    "source": "local"
+  }
+]

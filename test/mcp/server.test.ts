@@ -160,7 +160,7 @@ describe('EvalancheMCPServer', () => {
     const result = res.result as { protocolVersion: string; serverInfo: { name: string; version: string } };
     expect(result.protocolVersion).toBe('2024-11-05');
     expect(result.serverInfo.name).toBe('evalanche');
-    expect(result.serverInfo.version).toBe('1.8.0');
+    expect(result.serverInfo.version).toBe('1.8.8');
   });
 
   it('creates providers with batching disabled', () => {
@@ -185,6 +185,9 @@ describe('EvalancheMCPServer', () => {
     expect(names).toContain('submit_feedback');
     expect(names).toContain('sign_message');
     expect(names).toContain('get_network');
+    expect(names).toContain('get_holdings');
+    expect(names).toContain('search_registry');
+    expect(names).toContain('registry_status');
 
     // New v0.4.0 tools
     expect(names).toContain('get_supported_chains');
@@ -384,6 +387,7 @@ describe('EvalancheMCPServer', () => {
     const serverAny = server as unknown as {
       getAuthedClobClient: ReturnType<typeof vi.fn>;
       resolvePolymarketMarketToken: ReturnType<typeof vi.fn>;
+      fetchPolymarketPositions: ReturnType<typeof vi.fn>;
     };
     serverAny.getAuthedClobClient = vi.fn().mockResolvedValue(mockPolymarket);
     serverAny.resolvePolymarketMarketToken = vi.fn().mockResolvedValue({
@@ -392,6 +396,7 @@ describe('EvalancheMCPServer', () => {
       marketInspection: { ok: true },
       token: { tokenId: 'token-yes', outcome: 'YES' },
     });
+    serverAny.fetchPolymarketPositions = vi.fn().mockResolvedValue([]);
 
     const res = await server.handleRequest({
       jsonrpc: '2.0',
@@ -433,6 +438,39 @@ describe('EvalancheMCPServer', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.balance).toBeDefined();
     expect(parsed.unit).toBe('AVAX');
+  });
+
+  it('handles get_holdings and registry_status via the unified holdings client', async () => {
+    const holdingsApi = {
+      scan: vi.fn().mockResolvedValue({
+        walletAddress: mockWallet.address,
+        scannedAt: '2026-03-30T00:00:00.000Z',
+        holdings: [{ holdingType: 'token', protocolId: 'circle-usdc', protocolName: 'USDC', chain: 'polygon', symbol: 'USDC', displayBalance: '1', rawBalance: '1000000', source: 'local', confidence: 'high' }],
+        summary: { totalHoldings: 1, byType: { token: 1 }, byChain: { polygon: 1 }, byProtocol: { 'circle-usdc': 1 } },
+        warnings: [],
+      }),
+      getRegistry: vi.fn().mockReturnValue({
+        search: vi.fn().mockReturnValue({ query: 'usdc', protocols: [], assets: [], sources: [] }),
+        status: vi.fn().mockReturnValue({ protocols: 1, assets: 1, positionSources: 1, countsBySource: { local: 3 }, countsByDetector: { erc20_balance_detector: 1 } }),
+      }),
+    };
+    (server as any).agent.holdings = vi.fn().mockReturnValue(holdingsApi);
+
+    const holdingsRes = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 999,
+      method: 'tools/call',
+      params: { name: 'get_holdings', arguments: {} },
+    });
+    expect((holdingsRes.result as any).content[0].text).toContain('"totalHoldings": 1');
+
+    const statusRes = await server.handleRequest({
+      jsonrpc: '2.0',
+      id: 1000,
+      method: 'tools/call',
+      params: { name: 'registry_status', arguments: {} },
+    });
+    expect((statusRes.result as any).content[0].text).toContain('"positionSources": 1');
   });
 
   it('handles sign_message', async () => {

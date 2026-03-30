@@ -81,6 +81,23 @@ export {
 } from './defi/dapp-registry';
 export type { StakeQuote, UnstakeQuote, VaultQuote, VaultInfo, VaultConfig } from './defi/types';
 
+export { HoldingsClient, UniversalHoldingsRegistry, createUniversalHoldingsRegistry } from './holdings';
+export type {
+  AssetRecord,
+  HoldingRecord,
+  HoldingType,
+  HoldingsInclude,
+  HoldingsNetwork,
+  HoldingsRegistrySource,
+  HoldingsScanOptions,
+  HoldingsScanResult,
+  PositionSourceKind,
+  PositionSourceRecord,
+  ProtocolRecord,
+  RegistrySearchResult,
+  RegistryStatusResult,
+} from './holdings';
+
 export { CoinGeckoClient } from './market/coingecko';
 export { PolymarketClient, POLYMARKET_CLOB_HOST, PolymarketSide } from './polymarket';
 export type {

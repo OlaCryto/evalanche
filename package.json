@@ -1,7 +1,7 @@
 {
   "name": "evalanche",
-  "version": "1.8.7",
-  "description": "Multi-EVM agent wallet SDK with onchain identity (ERC-8004), payment rails (x402), cross-chain bridging (Li.Fi + Gas.zip), and perpetual futures (dYdX v4)",
+  "version": "1.8.8",
+  "description": "Multi-EVM agent wallet SDK with unified holdings discovery, onchain identity (ERC-8004), x402 payments, cross-chain liquidity (Li.Fi + Gas.zip), prediction markets, DeFi, and perpetual futures",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +23,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sync:defillama-registry": "node scripts/sync-defillama-registry.mjs"
   },
   "keywords": [
     "avalanche",

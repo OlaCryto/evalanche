@@ -32,6 +32,8 @@ import type { PlatformCLI as PlatformCLIType } from './avalanche/platform-cli';
 import type { InteropIdentityResolver as InteropResolverType } from './interop/identity';
 import type { LiquidStakingClient } from './defi/liquid-staking';
 import type { VaultClient } from './defi/vaults';
+import type { PolymarketClient } from './polymarket';
+import type { HoldingsClient } from './holdings/client';
 
 /** Configuration for the Evalanche agent */
 export interface EvalancheConfig {
@@ -86,6 +88,8 @@ export class Evalanche {
   private _interopResolver?: InteropResolverType;
   private _defiStaking?: LiquidStakingClient;
   private _defiVaults?: VaultClient;
+  private _polymarketClient?: PolymarketClient;
+  private _holdingsClient?: HoldingsClient;
   private readonly _mnemonic?: string;
   private readonly _multiVM: boolean;
   private _multiVMInitialized = false;
@@ -634,6 +638,29 @@ export class Evalanche {
       this._defiVaults = new VC(this.wallet, networkName);
     }
     return { staking: this._defiStaking, vaults: this._defiVaults };
+  }
+
+  /**
+   * Get or create the Polymarket client (lazy-initialized).
+   */
+  async polymarket(): Promise<PolymarketClient> {
+    if (!this._polymarketClient) {
+      const { PolymarketClient } = await import('./polymarket/client');
+      this._polymarketClient = new PolymarketClient(this.wallet, 137);
+    }
+    return this._polymarketClient;
+  }
+
+  /**
+   * Get the unified holdings scanner backed by the universal registry.
+   */
+  holdings(): HoldingsClient {
+    if (!this._holdingsClient) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { HoldingsClient: HC } = require('./holdings/client') as typeof import('./holdings/client');
+      this._holdingsClient = new HC(this);
+    }
+    return this._holdingsClient;
   }
 
   /**

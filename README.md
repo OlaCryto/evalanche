@@ -1,8 +1,8 @@
 # Evalanche
 
-**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), full agent identity resolution, payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), market intelligence (CoinGecko), prediction markets (Polymarket CLOB), agent economy primitives, DeFi operations, and perpetual futures (dYdX v4)**
+**Multi-EVM agent wallet SDK with onchain identity (ERC-8004), unified wallet holdings discovery, full agent identity resolution, payment rails (x402), cross-chain liquidity (Li.Fi bridging + DEX aggregation + DeFi Composer), gas funding (Gas.zip), market intelligence (CoinGecko), prediction markets (Polymarket CLOB), agent economy primitives, DeFi operations, and perpetual futures (dYdX v4 + Hyperliquid)**
 
-Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, cross-chain bridging, same-chain DEX swaps (31+ aggregators), CoinGecko market data, Polymarket market discovery and execution, agent economy primitives (discovery, negotiation, settlement, escrow, memory), DeFi operations, and perpetual futures on dYdX. No browser, no popups, no human in the loop.
+Evalanche gives AI agents a **non-custodial** wallet on **any EVM chain** — Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, and 15+ more — with built-in onchain identity, ERC-8004 full registration resolution, payment capabilities, unified holdings scanning, cross-chain bridging, same-chain DEX swaps (31+ aggregators), CoinGecko market data, Polymarket market discovery and execution, agent economy primitives (discovery, negotiation, settlement, escrow, memory), DeFi operations, and perpetual futures on dYdX + Hyperliquid. No browser, no popups, no human in the loop.
 
 ## Install
 
@@ -383,6 +383,45 @@ await baseVaults.deposit(YOUSD, '1000'); // approve + deposit in one call
 await baseVaults.withdraw(YOUSD, '998.1'); // redeem shares
 ```
 
+### Unified Holdings (universal registry + scanner)
+
+Evalanche now ships a universal in-repo holdings registry and a one-pass holdings scanner. The scanner combines:
+
+- native balances across supported chains
+- seeded ERC-20 balances
+- DeFi positions such as ERC-4626 vaults and liquid staking receipts
+- Polymarket positions
+- perp venue positions on Hyperliquid and dYdX
+
+```typescript
+const agent = new Evalanche({ privateKey: '0x...', network: 'base' });
+
+const portfolio = await agent.holdings().scan();
+
+console.log(portfolio.summary);
+// → { totalHoldings, byType, byChain, byProtocol }
+
+const filtered = await agent.holdings().scan({
+  chains: ['polygon', 'base', 'avalanche', 'hyperliquid'],
+  include: ['native', 'token', 'defi', 'prediction', 'perp'],
+  protocols: ['polymarket', 'avantis', 'yousd'],
+});
+
+console.log(filtered.holdings[0]);
+// → {
+//   holdingType: 'vault' | 'token' | 'prediction' | 'perp' | ...,
+//   protocolId: 'yousd-vault',
+//   protocolName: 'yoUSD Vault',
+//   chain: 'base',
+//   symbol: 'yoUSD',
+//   displayBalance: '24.917987',
+//   underlyingValue: '26.771162',
+//   ...
+// }
+```
+
+The universal registry is checked into the repo and shared by every agent. It is seeded with local canonical records, a vendored AvaPilot Avalanche snapshot, and DefiLlama import tooling. Runtime holdings truth still comes from live onchain reads and venue APIs.
+
 ### Prediction Markets: Polymarket (v1.5.0+)
 
 Polymarket support is exposed in two ways:
@@ -644,6 +683,9 @@ AGENT_PRIVATE_KEY=0x... evalanche-mcp --http --port 3402
 |------|-------------|
 | `get_address` | Get agent wallet address |
 | `get_balance` | Get native token balance |
+| `get_holdings` | Unified wallet holdings scan across tokens, DeFi, predictions, and perps |
+| `search_registry` | Search the universal in-repo holdings registry |
+| `registry_status` | Get universal registry counts and detector coverage |
 | `send_avax` | Send native tokens |
 | `call_contract` | Call a contract method |
 | `sign_message` | Sign a message |
@@ -893,7 +935,13 @@ For live operator validation, use the runbook in [docs/live-smoke-checklist.md](
 - market search, market details, order book access, balance and position discovery
 - expanded Evalanche into prediction market workflows alongside DeFi + perps
 
-### v1.8.6 (current)
+### v1.8.8 (current)
+- **Universal holdings + live verification**
+- unified holdings scanning now combines native balances, seeded ERC-20s, DeFi positions, Polymarket positions, and perp venue positions behind `agent.holdings().scan()` and the MCP `get_holdings` tool
+- the in-repo universal registry now seeds both DeFi routing and holdings discovery, with local canonical records taking precedence over AvaPilot and DefiLlama-enriched metadata
+- npm-facing documentation now reflects the current package surface instead of the older DeFi-routing-only model
+
+### v1.8.6
 - **Report-closure remediation**
 - DeFi MCP tools now resolve known protocols to canonical chains, support interoperable address inputs, and fail clearly on explicit wrong-chain requests
 - Avalanche dapp resolution is enriched by a vendored AvaPilot-backed registry provider without introducing runtime GitHub/network dependency

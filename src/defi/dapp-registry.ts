@@ -1,16 +1,21 @@
-import { getAddress } from 'ethers';
-import { SAVAX_CONTRACT } from './liquid-staking';
-import { YOUSD_VAULT } from './vaults';
-import { AVAPILOT_SEED_SERVICES } from './avapilot-seed';
-import { getChainByAlias, getChainById, CHAIN_ALIASES } from '../utils/chains';
 import type { ChainName } from '../utils/networks';
-import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
+import {
+  EvalancheError,
+  EvalancheErrorCode,
+} from '../utils/errors';
+import {
+  createUniversalHoldingsRegistry,
+  parseRegistryInteroperableAddress,
+  type UniversalHoldingsRegistry,
+  type UniversalResolvedDappRecord,
+} from '../holdings/registry';
 
 export type DappResolutionSource =
   | 'interop_address'
   | 'explicit_network'
   | 'local_registry'
   | 'avapilot_registry'
+  | 'defillama_registry'
   | 'current_network';
 
 export interface ParsedInteropAddress {
@@ -22,7 +27,7 @@ export interface DappRecord {
   address: string;
   network: ChainName;
   protocol: string;
-  source: 'local_registry' | 'avapilot_registry';
+  source: 'local_registry' | 'avapilot_registry' | 'defillama_registry';
   aliases?: string[];
   category?: string;
 }
@@ -45,81 +50,57 @@ export interface DappRegistryProvider {
   resolveByAlias?(alias: string): DappRecord | null;
 }
 
-const LOCAL_DAPP_RECORDS: DappRecord[] = [
-  {
-    address: normalizeAddress(YOUSD_VAULT),
-    network: 'base',
-    protocol: 'yoUSD Vault',
-    source: 'local_registry',
-    aliases: ['yousd', 'yousd-vault'],
-    category: 'vault',
-  },
-  {
-    address: getAddress(SAVAX_CONTRACT),
-    network: 'avalanche',
-    protocol: 'sAVAX',
-    source: 'local_registry',
-    aliases: ['savax', 'benqi-savax', 'benqi'],
-    category: 'staking',
-  },
-];
+function normalizeNetworkName(network?: string): ChainName | undefined {
+  if (!network) return undefined;
+  const value = network.trim().toLowerCase();
+  return value as ChainName;
+}
+
+function toDappRecord(resolved: UniversalResolvedDappRecord | null): DappRecord | null {
+  if (!resolved) return null;
+  return {
+    address: resolved.address,
+    network: resolved.network,
+    protocol: resolved.protocol,
+    aliases: resolved.aliases,
+    category: resolved.category,
+    source: resolved.source,
+  };
+}
 
 export class LocalCanonicalDappRegistryProvider implements DappRegistryProvider {
-  private readonly recordsByAddress = new Map<string, DappRecord>();
-  private readonly recordsByAlias = new Map<string, DappRecord>();
+  private readonly registry: UniversalHoldingsRegistry;
 
-  constructor(records: DappRecord[] = LOCAL_DAPP_RECORDS) {
-    for (const record of records) {
-      const normalized = { ...record, address: normalizeAddress(record.address) };
-      this.recordsByAddress.set(normalized.address.toLowerCase(), normalized);
-      this.recordsByAlias.set(normalized.protocol.toLowerCase(), normalized);
-      for (const alias of normalized.aliases ?? []) {
-        this.recordsByAlias.set(alias.toLowerCase(), normalized);
-      }
-    }
+  constructor(registry = createUniversalHoldingsRegistry()) {
+    this.registry = registry;
   }
 
   resolveByAddress(address: string): DappRecord | null {
-    return this.recordsByAddress.get(normalizeAddress(address).toLowerCase()) ?? null;
+    const resolved = this.registry.resolveAddress(address);
+    return resolved?.source === 'local_registry' ? toDappRecord(resolved) : null;
   }
 
   resolveByAlias(alias: string): DappRecord | null {
-    return this.recordsByAlias.get(alias.trim().toLowerCase()) ?? null;
+    const resolved = this.registry.resolveAlias(alias);
+    return resolved?.source === 'local_registry' ? toDappRecord(resolved) : null;
   }
 }
 
-const AVAPILOT_DAPP_RECORDS: DappRecord[] = AVAPILOT_SEED_SERVICES.flatMap((service) =>
-  service.contracts.map((contract) => ({
-    address: normalizeAddress(contract.address),
-    network: 'avalanche' as const,
-    protocol: service.name,
-    source: 'avapilot_registry' as const,
-    aliases: [...(service.aliases ?? []), service.name, contract.label].filter(Boolean),
-    category: service.category,
-  })),
-);
-
 export class AvaPilotRegistryProvider implements DappRegistryProvider {
-  private readonly recordsByAddress = new Map<string, DappRecord>();
-  private readonly recordsByAlias = new Map<string, DappRecord>();
+  private readonly registry: UniversalHoldingsRegistry;
 
-  constructor(records: DappRecord[] = AVAPILOT_DAPP_RECORDS) {
-    for (const record of records) {
-      const normalized = { ...record, address: normalizeAddress(record.address) };
-      this.recordsByAddress.set(normalized.address.toLowerCase(), normalized);
-      this.recordsByAlias.set(normalized.protocol.toLowerCase(), normalized);
-      for (const alias of normalized.aliases ?? []) {
-        this.recordsByAlias.set(alias.trim().toLowerCase(), normalized);
-      }
-    }
+  constructor(registry = createUniversalHoldingsRegistry()) {
+    this.registry = registry;
   }
 
   resolveByAddress(address: string): DappRecord | null {
-    return this.recordsByAddress.get(normalizeAddress(address).toLowerCase()) ?? null;
+    const resolved = this.registry.resolveAddress(address);
+    return resolved?.source === 'avapilot_registry' ? toDappRecord(resolved) : null;
   }
 
   resolveByAlias(alias: string): DappRecord | null {
-    return this.recordsByAlias.get(alias.trim().toLowerCase()) ?? null;
+    const resolved = this.registry.resolveAlias(alias);
+    return resolved?.source === 'avapilot_registry' ? toDappRecord(resolved) : null;
   }
 }
 
@@ -144,51 +125,33 @@ export class CompositeDappRegistry {
 }
 
 export function createDefaultDappRegistry(): CompositeDappRegistry {
+  const registry = createUniversalHoldingsRegistry();
   return new CompositeDappRegistry([
-    new LocalCanonicalDappRegistryProvider(),
-    new AvaPilotRegistryProvider(),
+    new LocalCanonicalDappRegistryProvider(registry),
+    new AvaPilotRegistryProvider(registry),
+    {
+      resolveByAddress: (address: string) => {
+        const resolved = registry.resolveAddress(address);
+        return resolved?.source === 'defillama_registry' ? toDappRecord(resolved) : null;
+      },
+      resolveByAlias: (alias: string) => {
+        const resolved = registry.resolveAlias(alias);
+        return resolved?.source === 'defillama_registry' ? toDappRecord(resolved) : null;
+      },
+    },
   ]);
 }
 
 export function parseInteroperableAddress(target: string): ParsedInteropAddress {
-  const value = target.trim();
-  const atMatch = value.match(/^(0x[a-fA-F0-9]{40})@([a-z0-9-]+)$/);
-  if (atMatch) {
-    const [, address, network] = atMatch;
-    const normalized = normalizeNetworkName(network);
-    if (!normalized) {
-      throw new EvalancheError(
-        `Unsupported interoperable address network: ${network}`,
-        EvalancheErrorCode.INTEROP_ADDRESS_ERROR,
-      );
-    }
-    return { address: normalizeAddress(address), network: normalized };
-  }
+  return parseRegistryInteroperableAddress(target);
+}
 
-  const caipMatch = value.match(/^eip155:(\d+):(0x[a-fA-F0-9]{40})$/);
-  if (caipMatch) {
-    const [, chainIdRaw, address] = caipMatch;
-    const chain = getChainById(Number(chainIdRaw));
-    const normalized = chain
-      ? normalizeNetworkName(chain.shortName) ?? normalizeNetworkName(chain.name)
-      : undefined;
-    if (!normalized) {
-      throw new EvalancheError(
-        `Unsupported CAIP-10 chain ID: ${chainIdRaw}`,
-        EvalancheErrorCode.INTEROP_ADDRESS_ERROR,
-      );
-    }
-    return { address: normalizeAddress(address), network: normalized };
+function tryParseInteroperableAddress(target: string): ParsedInteropAddress | null {
+  try {
+    return parseInteroperableAddress(target);
+  } catch {
+    return null;
   }
-
-  if (/^0x[a-fA-F0-9]{40}$/.test(value)) {
-    return { address: normalizeAddress(value) };
-  }
-
-  throw new EvalancheError(
-    `Invalid interoperable address input: ${target}`,
-    EvalancheErrorCode.INTEROP_ADDRESS_ERROR,
-  );
 }
 
 export function resolveDappTarget(
@@ -263,34 +226,4 @@ export function resolveDappTarget(
     network: currentNetwork,
     source: 'current_network',
   };
-}
-
-function normalizeNetworkName(network?: string): ChainName | undefined {
-  if (!network) return undefined;
-  const normalized = network.trim().toLowerCase();
-  if (normalized in CHAIN_ALIASES) {
-    return normalized as ChainName;
-  }
-  const chain = getChainByAlias(normalized);
-  if (chain) {
-    const alias = Object.entries(CHAIN_ALIASES).find(([, chainId]) => chainId === chain.id)?.[0];
-    if (alias) return alias as ChainName;
-  }
-  const hyphenated = normalized.replace(/\s+/g, '-');
-  if (hyphenated in CHAIN_ALIASES) {
-    return hyphenated as ChainName;
-  }
-  return undefined;
-}
-
-function tryParseInteroperableAddress(target: string): ParsedInteropAddress | null {
-  try {
-    return parseInteroperableAddress(target);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeAddress(address: string): string {
-  return getAddress(address.toLowerCase());
 }

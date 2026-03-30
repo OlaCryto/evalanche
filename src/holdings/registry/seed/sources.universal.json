@@ -1,0 +1,80 @@
+[
+  {
+    "sourceId": "base-yousd-vault",
+    "protocolId": "yousd-vault",
+    "chain": "base",
+    "sourceKind": "erc4626_vault",
+    "address": "0x0000000F2Eb9f69274678c76222B35eEC7588A65",
+    "detectorId": "erc4626_detector",
+    "role": "vault",
+    "underlyingTokens": ["base:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"],
+    "priority": 100,
+    "source": "local"
+  },
+  {
+    "sourceId": "base-avantis-avusdc",
+    "protocolId": "avantis",
+    "chain": "base",
+    "sourceKind": "erc4626_vault",
+    "address": "0x944766f715b51967e56afde5f0aa76ceacc9e7f9",
+    "detectorId": "erc4626_detector",
+    "role": "vault",
+    "underlyingTokens": ["base:0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"],
+    "priority": 100,
+    "source": "local"
+  },
+  {
+    "sourceId": "avalanche-savax",
+    "protocolId": "benqi",
+    "chain": "avalanche",
+    "sourceKind": "liquid_staking",
+    "address": "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
+    "detectorId": "liquid_staking_detector",
+    "role": "receipt_token",
+    "underlyingTokens": ["avalanche:native"],
+    "priority": 100,
+    "source": "local"
+  },
+  {
+    "sourceId": "avalanche-benqi-qiusdc",
+    "protocolId": "benqi-lending",
+    "chain": "avalanche",
+    "sourceKind": "lending_receipt",
+    "address": "0xBEb5d47A3f720Ec0a390d04b4d41ED7d9688bC7F",
+    "detectorId": "lending_receipt_detector",
+    "role": "receipt_token",
+    "underlyingTokens": ["avalanche:0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E"],
+    "priority": 80,
+    "source": "avapilot"
+  },
+  {
+    "sourceId": "polygon-polymarket",
+    "protocolId": "polymarket",
+    "chain": "polygon",
+    "sourceKind": "prediction_venue",
+    "detectorId": "polymarket_detector",
+    "role": "prediction_venue",
+    "priority": 100,
+    "source": "local"
+  },
+  {
+    "sourceId": "venue-hyperliquid",
+    "protocolId": "hyperliquid",
+    "chain": "hyperliquid",
+    "sourceKind": "perp_venue",
+    "detectorId": "hyperliquid_detector",
+    "role": "perp_venue",
+    "priority": 100,
+    "source": "local"
+  },
+  {
+    "sourceId": "venue-dydx",
+    "protocolId": "dydx",
+    "chain": "dydx",
+    "sourceKind": "perp_venue",
+    "detectorId": "dydx_detector",
+    "role": "perp_venue",
+    "priority": 100,
+    "source": "local"
+  }
+]
