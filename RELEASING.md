@@ -1,29 +1,23 @@
 # Releasing Evalanche
 
-This repository uses a tag-driven GitHub Actions release workflow.
+Evalanche uses a tag-driven GitHub Actions release workflow.
 
 On every pushed `vX.Y.Z` tag, GitHub Actions will:
 
 - validate that the tag matches `package.json`
-- require `RELEASE_NOTES_X.Y.Z.md` to exist
+- require `docs/releases/RELEASE_NOTES_X.Y.Z.md`
 - run `npm test`
 - run `npm run typecheck`
 - run `npm run build`
-- create the GitHub Release from the matching release-notes file
-- publish the npm package via trusted publishing
-- publish the ClawHub skill from `skill/`
-
-## Prerequisites
-
-- `CLAWHUB_TOKEN` is configured in GitHub Actions secrets
-- npm trusted publishing is configured for this repository on npmjs.com
-- `skill/SKILL.md` is updated for the release
+- create the GitHub Release from the matching notes file
+- publish the npm package
+- publish the ClawHub skill
 
 ## Release Steps
 
-1. Update code, docs, and `skill/SKILL.md` as needed.
-2. Add `RELEASE_NOTES_X.Y.Z.md`.
-3. Bump the version in `package.json` and `package-lock.json` to `X.Y.Z`.
+1. Update code, docs, and `skill/SKILL.md`.
+2. Add `docs/releases/RELEASE_NOTES_X.Y.Z.md`.
+3. Bump `package.json` and `package-lock.json` to `X.Y.Z`.
 4. Run:
 
 ```bash
@@ -32,31 +26,18 @@ npm run typecheck
 npm run build
 ```
 
-5. Commit the release changes.
-6. Create the tag:
-
-```bash
-git tag -a vX.Y.Z -m "vX.Y.Z"
-```
-
-7. Push the branch and tag:
+5. Commit the release.
+6. Create and push the tag:
 
 ```bash
 git push origin main
+git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-## Expected Outcome
+## Failure Checks
 
-After the tag push, GitHub Actions should:
-
-- create a GitHub Release named `Evalanche vX.Y.Z`
-- publish `evalanche@X.Y.Z` to npm
-- publish the updated Evalanche skill to ClawHub
-
-## Troubleshooting
-
-- If the workflow fails early, check that the tag exactly matches `package.json`.
-- If the workflow cannot create the release, check repository Actions permissions.
-- If ClawHub publish fails, verify `CLAWHUB_TOKEN` is present and still valid.
-- If npm publish fails, verify trusted publishing is still configured for this repo.
+- tag and `package.json` version must match exactly
+- release notes file must exist in `docs/releases/`
+- npm trusted publishing must still be configured
+- `CLAWHUB_TOKEN` must still be valid in GitHub Actions secrets
