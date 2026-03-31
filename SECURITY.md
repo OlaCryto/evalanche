@@ -2,28 +2,37 @@
 
 ## Supported Versions
 
+Security fixes are applied to the current maintained release line only.
+
 | Version | Supported |
-| ------- | ------------------ |
-| 1.6.x | :white_check_mark: |
-| 1.5.x | :x: |
-| < 1.5 | :x: |
+| ------- | --------- |
+| 1.8.x   | :white_check_mark: |
+| < 1.8   | :x: |
+
+For current package and release history, see:
+
+- [README](README.md)
+- [Release notes](docs/releases/README.md)
+- [Vulnerability notes](VULN_NOTES.md)
 
 ## Reporting a Vulnerability
 
-If you discover a security issue in Evalanche, please report it privately through **GitHub Private Vulnerability Reporting** / **GitHub Security Advisories** for this repository.
+If you discover a security issue in Evalanche, report it privately through **GitHub Private Vulnerability Reporting** / **GitHub Security Advisories** for this repository.
 
-Please **do not** open a public GitHub issue for security vulnerabilities.
+Do **not** open a public GitHub issue for security vulnerabilities.
 
-When reporting, please include:
+Please include:
+
 - affected version
-- impacted module or feature
+- impacted module, dependency, or execution surface
 - reproduction steps or proof of concept
-- severity / potential impact
-- any suggested fix or mitigation
+- severity and likely impact
+- any known mitigation or suggested fix
 
-You can expect:
+## Response Expectations
+
 - acknowledgement within **72 hours**
-- an initial triage/update within **7 days**
-- coordinated disclosure once a fix or mitigation is available
+- initial triage or follow-up within **7 days**
+- coordinated disclosure after a fix or mitigation is available
 
-If the report is accepted, we will work on a fix as quickly as possible and coordinate disclosure responsibly. If the report is declined, we will explain why when possible.
+Security fixes are expected to ship on the active release line, with notes captured in the release docs when appropriate.
