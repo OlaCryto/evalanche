@@ -70,6 +70,30 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Capture production audit snapshot
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > audit-report.json || true
+
+      - name: Refresh release docs
+        run: npm run refresh:release-docs -- --version "${{ steps.meta.outputs.version }}" --release-notes "${{ steps.meta.outputs.release_notes_file }}" --audit-file audit-report.json
+
+      - name: Capture release docs patch
+        id: docs_patch
+        shell: bash
+        run: |
+          DOC_FILES=(README.md ROADMAP.md RELEASING.md SECURITY.md VULN_NOTES.md)
+          PATCH_FILE="$RUNNER_TEMP/release-docs.patch"
+
+          if git diff --quiet -- "${DOC_FILES[@]}"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "patch_file=" >> "$GITHUB_OUTPUT"
+          else
+            git diff -- "${DOC_FILES[@]}" > "$PATCH_FILE"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "patch_file=$PATCH_FILE" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run tests
         run: npm test
 
@@ -78,6 +102,47 @@ jobs:
 
       - name: Build package
         run: npm run build
+
+      - name: Validate npm README parity
+        shell: bash
+        run: |
+          PACK_DIR="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$PACK_DIR"
+          PACK_JSON="$PACK_DIR/pack.json"
+          npm pack --json --pack-destination "$PACK_DIR" > "$PACK_JSON"
+          TARBALL=$(node -e "const fs=require('fs'); const pack=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(pack[0].filename);" "$PACK_JSON")
+          tar -xOf "$PACK_DIR/$TARBALL" package/README.md > "$PACK_DIR/published-README.md"
+          cmp -s README.md "$PACK_DIR/published-README.md"
+
+      - name: Push refreshed docs to main
+        if: steps.docs_patch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag commit is not contained in origin/main"
+            exit 1
+          fi
+
+          WORKTREE_DIR="$RUNNER_TEMP/release-docs-main"
+          git worktree add -B main "$WORKTREE_DIR" origin/main
+
+          cd "$WORKTREE_DIR"
+          git apply --3way "${{ steps.docs_patch.outputs.patch_file }}"
+
+          if git diff --quiet -- README.md ROADMAP.md RELEASING.md SECURITY.md VULN_NOTES.md; then
+            echo "No docs changes left to commit on main"
+            exit 0
+          fi
+
+          git add README.md ROADMAP.md RELEASING.md SECURITY.md VULN_NOTES.md
+          git commit -m "docs: refresh release docs for v${{ steps.meta.outputs.version }}"
+          git push origin HEAD:main
 
       - name: Preflight package identity
         run: |

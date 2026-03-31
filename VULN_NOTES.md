@@ -2,6 +2,20 @@
 
 This file is a short current-state security posture note, not a historical remediation log.
 
+<!-- GENERATED:vuln-snapshot:start -->
+## Current Release Snapshot
+
+- Current release: `1.8.8`
+- `npm audit --omit=dev`: `0 critical`, `3 high`, `18 low`
+
+## Active Overrides
+
+- `@ledgerhq/cryptoassets`: `9.13.0`
+- `@hpke/core`: `^1.9.0`
+- `axios`: `1.13.6`
+- `@osmonauts/lcd.axios`: `^1.13.6`
+<!-- GENERATED:vuln-snapshot:end -->
+
 ## Current Posture
 
 - keep dependency overrides explicit and current

@@ -2,17 +2,23 @@
 
 This is the active roadmap for the repository.
 
-## Current State
+<!-- GENERATED:roadmap-release:start -->
+## Latest Shipped Release
 
-Evalanche is an Avalanche-first agent wallet and execution SDK with:
+- Latest release: [v1.8.8](docs/releases/RELEASE_NOTES_1.8.8.md)
+- Shipped in `v1.8.8`:
+  - Added a universal in-repo holdings registry shared by all agents
+  - Added unified holdings scanning through `agent.holdings().scan()`
+  - Added MCP tools: `get_holdings` `search_registry` `registry_status`
+  - Unified DeFi routing and holdings discovery onto the same universal registry
 
-- non-custodial wallet boot and identity support
-- unified holdings discovery
-- bridge, swap, and gas-funding flows
-- Avalanche and multi-EVM DeFi actions
-- Polymarket integration
-- perpetual venue support for Hyperliquid and dYdX
-- MCP and SDK public surfaces
+## Current Focus
+
+- Avalanche-first execution quality
+- Holdings coverage
+- Interop and transport
+- Security and dependency reduction
+<!-- GENERATED:roadmap-release:end -->
 
 ## Near-Term Priorities
 

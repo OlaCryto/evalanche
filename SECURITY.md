@@ -1,5 +1,6 @@
 # Security Policy
 
+<!-- GENERATED:security-supported:start -->
 ## Supported Versions
 
 Security fixes are applied to the current maintained release line only.
@@ -14,6 +15,7 @@ For current package and release history, see:
 - [README](README.md)
 - [Release notes](docs/releases/README.md)
 - [Vulnerability notes](VULN_NOTES.md)
+<!-- GENERATED:security-supported:end -->
 
 ## Reporting a Vulnerability
 

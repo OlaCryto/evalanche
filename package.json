@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "refresh:release-docs": "node scripts/refresh-release-docs.mjs",
     "sync:defillama-registry": "node scripts/sync-defillama-registry.mjs"
   },
   "keywords": [

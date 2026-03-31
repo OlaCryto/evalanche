@@ -2,6 +2,23 @@
 
 Avalanche-first agent wallet and execution SDK for AI agents, with multi-EVM support for holdings, payments, DeFi, bridge flows, prediction markets, and perpetuals.
 
+<!-- GENERATED:release-summary:start -->
+## Current Release
+
+- Latest release: [v1.8.8](docs/releases/RELEASE_NOTES_1.8.8.md)
+- Published package: `evalanche@1.8.8`
+- Current package surface:
+  - Added a universal in-repo holdings registry shared by all agents
+  - Added unified holdings scanning through `agent.holdings().scan()`
+  - Added MCP tools: `get_holdings` `search_registry` `registry_status`
+  - Unified DeFi routing and holdings discovery onto the same universal registry
+- Docs:
+  - [Release notes](docs/releases/README.md)
+  - [Roadmap](ROADMAP.md)
+  - [Release process](RELEASING.md)
+  - [Security](SECURITY.md)
+<!-- GENERATED:release-summary:end -->
+
 ## Install
 
 ```bash
