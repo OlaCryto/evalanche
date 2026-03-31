@@ -38,7 +38,7 @@ describe('release automation scripts', () => {
     const root = await makeTempDir();
     await writeFixture(root, 'package.json', `${JSON.stringify({ name: 'evalanche', version: '1.8.8' }, null, 2)}\n`);
     await writeFixture(root, 'skill/SKILL.md', '# Skill\n');
-    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '# Evalanche v1.8.8\n\n## Highlights\n\n- Added release gates\n');
+    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '## Highlights\n\n- Added release gates\n');
 
     const result = await runReleaseIntegrityCheck({
       rootDir: root,
@@ -53,7 +53,7 @@ describe('release automation scripts', () => {
 
   it('checks release notes coverage with ignore rules', async () => {
     const root = await makeTempDir();
-    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '# Evalanche v1.8.8\n\n## Highlights\n\n- Added holdings registry coverage and release gates\n');
+    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '## Highlights\n\n- Added holdings registry coverage and release gates\n');
     await writeFixture(root, 'docs/releases/coverage-ignore.json', `${JSON.stringify({ ignorePrefixes: ['docs:'], ignoreCommits: [] }, null, 2)}\n`);
 
     const result = await checkReleaseNotesCoverage({
@@ -194,7 +194,7 @@ describe('release automation scripts', () => {
   it('builds a release manifest from workflow artifacts', async () => {
     const root = await makeTempDir();
     await writeFixture(root, 'package.json', `${JSON.stringify({ name: 'evalanche', version: '1.8.8', description: 'pkg' }, null, 2)}\n`);
-    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '# Evalanche v1.8.8\n\n## Highlights\n\n- Added release manifest\n');
+    await writeFixture(root, 'docs/releases/RELEASE_NOTES_1.8.8.md', '## Highlights\n\n- Added release manifest\n');
     await writeFixture(root, 'mcp-tools.json', `${JSON.stringify({ toolCount: 10 }, null, 2)}\n`);
     await writeFixture(root, 'pack.json', `${JSON.stringify([{ filename: 'evalanche-1.8.8.tgz', size: 123, unpackedSize: 456, entryCount: 7 }], null, 2)}\n`);
     await writeFixture(root, 'tarball-check.json', `${JSON.stringify({ ok: true }, null, 2)}\n`);
@@ -217,6 +217,7 @@ describe('release automation scripts', () => {
     });
 
     expect(result.package.version).toBe('1.8.8');
+    expect(result.releaseNotes.highlightsCount).toBe(1);
     expect(result.mcp.toolCount).toBe(10);
   });
 

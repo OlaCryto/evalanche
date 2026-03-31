@@ -49,10 +49,6 @@ export function releaseNotesPath(rootDir, version) {
   return path.join(rootDir, 'docs', 'releases', `RELEASE_NOTES_${normalizeVersion(version)}.md`);
 }
 
-export function extractReleaseTitle(notes) {
-  return notes.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? null;
-}
-
 export function extractHighlights(notes) {
   const lines = notes.split('\n');
   const start = lines.findIndex((line) => line.trim() === '## Highlights');

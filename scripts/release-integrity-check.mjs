@@ -5,7 +5,6 @@ import path from 'node:path';
 import {
   DEFAULT_ROOT,
   extractHighlights,
-  extractReleaseTitle,
   loadPackage,
   maybeWriteJson,
   normalizeVersion,
@@ -37,13 +36,9 @@ export async function runReleaseIntegrityCheck({
   }
 
   const notes = await fs.readFile(notesPath, 'utf8');
-  const title = extractReleaseTitle(notes);
   const highlights = extractHighlights(notes);
   const skill = await fs.readFile(skillFile, 'utf8');
 
-  if (!title || title !== `Evalanche v${resolvedVersion}`) {
-    throw new Error(`release notes title must be "Evalanche v${resolvedVersion}"`);
-  }
   if (highlights.length === 0) {
     throw new Error('release notes must include a non-empty Highlights section');
   }
@@ -56,7 +51,6 @@ export async function runReleaseIntegrityCheck({
     version: resolvedVersion,
     tag: resolvedTag,
     releaseNotesPath: path.relative(rootDir, notesPath),
-    title,
     highlightsCount: highlights.length,
     skillPath: path.relative(rootDir, skillFile),
     skillBytes: Buffer.byteLength(skill),

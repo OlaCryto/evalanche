@@ -1,5 +1,3 @@
-# Evalanche v1.8.7
-
 This release hardens live execution and canonical-chain DeFi routing, with the fixes validated against funded wallets and a full green test/build pass.
 
 ## Highlights

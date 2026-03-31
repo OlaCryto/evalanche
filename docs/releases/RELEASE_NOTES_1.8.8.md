@@ -1,5 +1,3 @@
-# Evalanche v1.8.8
-
 ## Highlights
 
 - Added a universal in-repo holdings registry shared by all agents

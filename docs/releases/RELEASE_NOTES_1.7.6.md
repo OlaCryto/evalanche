@@ -1,5 +1,3 @@
-# Evalanche 1.7.6
-
 ## Summary
 
 This release hardens the Polymarket integration and documents the agent-facing surface more clearly.

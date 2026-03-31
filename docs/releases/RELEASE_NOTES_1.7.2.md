@@ -1,5 +1,3 @@
-# Evalanche 1.7.2
-
 ## Summary
 
 This patch release validates the corrected tag-driven release workflow after the `1.7.1` ClawHub publish failure.

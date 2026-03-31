@@ -1,5 +1,3 @@
-# Evalanche 1.7.7
-
 ## Summary
 
 This release hardens Polymarket sell execution so agents do not silently route into unsafe dust-floor fills.

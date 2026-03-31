@@ -1,5 +1,3 @@
-# Evalanche 1.7.0
-
 ## Summary
 
 This release hardens the payment, settlement, network-switching, and transport layers, updates live bridge/gas integrations to current vendor behavior, and repairs the test harness so the suite is trustworthy again.

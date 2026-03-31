@@ -1,5 +1,3 @@
-# Evalanche 1.6.0
-
 ## What shipped
 - Sovereign Polymarket execution path is now live in the local Evalanche build
 - MCP wiring added for `pm_approve` and `pm_buy`

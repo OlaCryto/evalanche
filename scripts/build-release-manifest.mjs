@@ -3,7 +3,7 @@
 import path from 'node:path';
 import {
   DEFAULT_ROOT,
-  extractReleaseTitle,
+  extractHighlights,
   loadPackage,
   maybeWriteJson,
   parseArgs,
@@ -36,6 +36,7 @@ export async function buildReleaseManifest({
   const pkg = await loadPackage(rootDir);
   const notesPath = path.resolve(rootDir, releaseNotes);
   const notesContent = await import('node:fs/promises').then(({ readFile }) => readFile(notesPath, 'utf8'));
+  const highlights = extractHighlights(notesContent);
   const mcpTools = await readJson(path.resolve(rootDir, mcpToolsFile));
   const packJson = await readJson(path.resolve(rootDir, packJsonFile));
   const tarballCheck = await readJson(path.resolve(rootDir, tarballCheckFile));
@@ -55,7 +56,7 @@ export async function buildReleaseManifest({
     },
     releaseNotes: {
       path: releaseNotes,
-      title: extractReleaseTitle(notesContent),
+      highlightsCount: highlights.length,
     },
     docsRefresh: docRefresh,
     mcp: {

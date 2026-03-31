@@ -64,11 +64,6 @@ async function readJson(filePath) {
   return JSON.parse(await fs.readFile(filePath, 'utf8'));
 }
 
-function extractReleaseTitle(notes) {
-  const match = notes.match(/^#\s+(.+)$/m);
-  return match?.[1]?.trim() || null;
-}
-
 function extractHighlights(notes) {
   const lines = notes.split('\n');
   const start = lines.findIndex((line) => line.trim() === '## Highlights');
@@ -246,13 +241,11 @@ export async function refreshReleaseDocs({
   }
 
   const notes = await fs.readFile(resolvedNotesPath, 'utf8');
-  const title = extractReleaseTitle(notes);
-  if (!title || !title.includes(resolvedVersion)) {
-    throw new Error(`Release notes title does not match version ${resolvedVersion}`);
-  }
-
   const effectiveAuditData = auditData ?? (auditFile ? await readJson(path.resolve(rootDir, auditFile)) : null);
   const highlights = extractHighlights(notes);
+  if (highlights.length === 0) {
+    throw new Error(`Release notes must include a non-empty Highlights section for version ${resolvedVersion}`);
+  }
 
   const docs = await Promise.all(
     Object.values(DOCS).map(async (file) => [file, await fs.readFile(path.join(rootDir, file), 'utf8')]),

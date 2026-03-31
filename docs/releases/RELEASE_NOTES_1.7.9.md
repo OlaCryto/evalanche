@@ -1,5 +1,3 @@
-# Evalanche 1.7.9
-
 ## Summary
 
 This release fixes a Polymarket collateral unit mismatch that could make `pm_preflight` report a wallet as funded even when the venue balance was only a few cents in raw microUSDC.

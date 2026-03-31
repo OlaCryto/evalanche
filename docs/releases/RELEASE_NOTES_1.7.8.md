@@ -1,5 +1,3 @@
-# Evalanche 1.7.8
-
 ## Summary
 
 This release turns the Polymarket MCP surface into a more reliable execution layer by adding deterministic preflight checks, venue-first verification, and structured reconciliation tools.

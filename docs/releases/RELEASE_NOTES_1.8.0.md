@@ -1,5 +1,3 @@
-# Evalanche v1.8.0
-
 ## Highlights
 
 - Hyperliquid is now a first-class trading venue in both the SDK and MCP surface.

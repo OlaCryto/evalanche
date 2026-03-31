@@ -1,5 +1,3 @@
-# Evalanche v1.8.6
-
 ## Summary
 
 `v1.8.6` closes the main issues raised in the March 28 capability report by making DeFi chain resolution deterministic, strengthening venue-truth reporting for Polymarket, and expanding the verification payloads returned by Hyperliquid and LI.FI MCP execution tools.

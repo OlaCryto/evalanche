@@ -31,7 +31,7 @@ async function makeFixture({
   );
   await fs.writeFile(
     path.join(root, 'docs', 'releases', `RELEASE_NOTES_${version}.md`),
-    `# Evalanche v${version}\n\n## Highlights\n\n- Added deterministic docs refresh\n- Added workflow parity checks\n`,
+    `## Highlights\n\n- Added deterministic docs refresh\n- Added workflow parity checks\n`,
   );
 
   const readmeBlock = includeMarkers

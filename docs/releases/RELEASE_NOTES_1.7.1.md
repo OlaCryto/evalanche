@@ -1,5 +1,3 @@
-# Evalanche 1.7.1
-
 ## Summary
 
 This patch release adds a tag-driven release pipeline so future Evalanche releases can publish more consistently from a single source of truth.

@@ -1,5 +1,3 @@
-# Evalanche 1.7.5
-
 ## Summary
 
 This release expands the routing and perp abstractions while tightening project planning into a single active roadmap.
