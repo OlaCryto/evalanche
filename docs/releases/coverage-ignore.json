@@ -1,0 +1,10 @@
+{
+  "ignorePrefixes": [
+    "docs:",
+    "chore:",
+    "ci:",
+    "security:",
+    "release:"
+  ],
+  "ignoreCommits": []
+}

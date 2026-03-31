@@ -112,3 +112,4 @@ export type {
 
 export * from './economy';
 export * from './interop';
+export { EvalancheMCPServer } from './mcp/server';

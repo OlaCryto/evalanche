@@ -8,12 +8,16 @@ Evalanche uses a tag-driven GitHub Actions release workflow.
 - Current release line: `v1.8.8`
 - Release notes path: `docs/releases/RELEASE_NOTES_1.8.8.md`
 - Required workflow checks:
+  - release integrity and notes coverage
   - `npm test`
   - `npm run typecheck`
   - `npm run build`
-  - docs refresh and README parity validation
+  - docs refresh, MCP/docs parity, and README parity validation
+  - package tarball and export validation
+  - audit regression and read-only smoke validation
 - Publish targets:
   - GitHub Release
+  - GitHub Release assets
   - npm package
   - ClawHub skill
 <!-- GENERATED:release-process:end -->
@@ -22,10 +26,16 @@ On every pushed `vX.Y.Z` tag, GitHub Actions will:
 
 - validate that the tag matches `package.json`
 - require `docs/releases/RELEASE_NOTES_X.Y.Z.md`
+- run release integrity and release-notes coverage gates
+- refresh the generated sections in release docs and push that docs commit back to `main` when needed
 - run `npm test`
 - run `npm run typecheck`
 - run `npm run build`
+- export MCP tool inventory and enforce docs parity
+- validate the npm tarball contents and README parity
+- enforce the audit regression gate and read-only release smoke
 - create the GitHub Release from the matching notes file
+- upload machine-readable release assets to the GitHub Release
 - publish the npm package
 - publish the ClawHub skill
 

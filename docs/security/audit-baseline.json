@@ -1,0 +1,19 @@
+{
+  "version": "1.8.8",
+  "counts": {
+    "critical": 0,
+    "high": 3,
+    "moderate": 0,
+    "low": 18,
+    "info": 0,
+    "total": 21
+  },
+  "highPackages": [
+    "@avalabs/core-wallets-sdk",
+    "@ledgerhq/hw-app-btc",
+    "tiny-secp256k1"
+  ],
+  "criticalPackages": [],
+  "allowlistedHighPackages": [],
+  "allowlistedCriticalPackages": []
+}

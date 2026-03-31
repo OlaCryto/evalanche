@@ -13,6 +13,7 @@ jobs:
       id-token: write
     env:
       NODE_VERSION: '20'
+      RELEASE_ARTIFACT_DIR: ${{ runner.temp }}/release-artifacts
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.1
@@ -67,16 +68,54 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare release artifacts
+        shell: bash
+        run: mkdir -p "$RELEASE_ARTIFACT_DIR"
+
+      - name: Determine previous tag
+        id: previous_tag
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          PREVIOUS_TAG=$(git tag --sort=-v:refname | grep -v "^v${VERSION}$" | head -n1 || true)
+          echo "previous_tag=${PREVIOUS_TAG}" >> "$GITHUB_OUTPUT"
+          echo "previous tag: ${PREVIOUS_TAG:-none}"
+
+      - name: Release integrity gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/release-integrity-check.mjs \
+            --version "$VERSION" \
+            --tag "v$VERSION" \
+            --release-notes "${{ steps.meta.outputs.release_notes_file }}" \
+            --out "$RELEASE_ARTIFACT_DIR/release-integrity-v${VERSION}.json"
+          node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log('## Release Integrity\\n'); console.log('- Version: `'+data.version+'`'); console.log('- Release notes: `'+data.releaseNotesPath+'`'); console.log('- Highlights: '+data.highlightsCount);" "$RELEASE_ARTIFACT_DIR/release-integrity-v${VERSION}.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release notes coverage gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/check-release-notes-coverage.mjs \
+            --version "$VERSION" \
+            --previous-tag "${{ steps.previous_tag.outputs.previous_tag }}" \
+            --current-ref "$GITHUB_SHA" \
+            --release-notes "${{ steps.meta.outputs.release_notes_file }}" \
+            --out "$RELEASE_ARTIFACT_DIR/release-notes-coverage-v${VERSION}.json"
+
       - name: Install dependencies
         run: npm ci
 
       - name: Capture production audit snapshot
         shell: bash
         run: |
-          npm audit --omit=dev --json > audit-report.json || true
+          VERSION="${{ steps.meta.outputs.version }}"
+          npm audit --omit=dev --json > "$RELEASE_ARTIFACT_DIR/audit-report-v${VERSION}.json" || true
 
       - name: Refresh release docs
-        run: npm run refresh:release-docs -- --version "${{ steps.meta.outputs.version }}" --release-notes "${{ steps.meta.outputs.release_notes_file }}" --audit-file audit-report.json
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          npm run refresh:release-docs -- --version "$VERSION" --release-notes "${{ steps.meta.outputs.release_notes_file }}" --audit-file "$RELEASE_ARTIFACT_DIR/audit-report-v${VERSION}.json" --out "$RELEASE_ARTIFACT_DIR/doc-refresh-v${VERSION}.json"
 
       - name: Capture release docs patch
         id: docs_patch
@@ -95,24 +134,61 @@ jobs:
           fi
 
       - name: Run tests
+        id: tests
         run: npm test
 
       - name: Run typecheck
+        id: typecheck
         run: npm run typecheck
 
       - name: Build package
+        id: build
         run: npm run build
 
-      - name: Validate npm README parity
+      - name: Export MCP tools
         shell: bash
         run: |
-          PACK_DIR="$RUNNER_TEMP/npm-pack"
-          mkdir -p "$PACK_DIR"
-          PACK_JSON="$PACK_DIR/pack.json"
-          npm pack --json --pack-destination "$PACK_DIR" > "$PACK_JSON"
-          TARBALL=$(node -e "const fs=require('fs'); const pack=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); process.stdout.write(pack[0].filename);" "$PACK_JSON")
-          tar -xOf "$PACK_DIR/$TARBALL" package/README.md > "$PACK_DIR/published-README.md"
-          cmp -s README.md "$PACK_DIR/published-README.md"
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/export-mcp-tools.mjs --out "$RELEASE_ARTIFACT_DIR/mcp-tools-v${VERSION}.json"
+
+      - name: Docs parity gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/check-docs-parity.mjs \
+            --version "$VERSION" \
+            --mcp-tools "$RELEASE_ARTIFACT_DIR/mcp-tools-v${VERSION}.json" \
+            --out "$RELEASE_ARTIFACT_DIR/docs-parity-v${VERSION}.json"
+          node -e "const fs=require('fs'); const data=JSON.parse(fs.readFileSync(process.argv[1],'utf8')); console.log('## Docs Parity\\n'); console.log('- MCP tools exported: '+data.toolCount); console.log('- Status: '+(data.ok?'pass':'fail'));" "$RELEASE_ARTIFACT_DIR/docs-parity-v${VERSION}.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build npm pack artifact
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          npm pack --json --pack-destination "$RELEASE_ARTIFACT_DIR" > "$RELEASE_ARTIFACT_DIR/npm-pack-v${VERSION}.json"
+
+      - name: Package tarball gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/check-package-tarball.mjs \
+            --pack-json "$RELEASE_ARTIFACT_DIR/npm-pack-v${VERSION}.json" \
+            --out "$RELEASE_ARTIFACT_DIR/npm-tarball-check-v${VERSION}.json"
+
+      - name: Read-only smoke gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/release-smoke.mjs --out "$RELEASE_ARTIFACT_DIR/release-smoke-v${VERSION}.json"
+
+      - name: Audit regression gate
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/check-audit-regressions.mjs \
+            --audit "$RELEASE_ARTIFACT_DIR/audit-report-v${VERSION}.json" \
+            --baseline "docs/security/audit-baseline.json" \
+            --out "$RELEASE_ARTIFACT_DIR/audit-regression-v${VERSION}.json"
 
       - name: Push refreshed docs to main
         if: steps.docs_patch.outputs.changed == 'true'
@@ -172,6 +248,43 @@ jobs:
               --latest
           fi
 
+      - name: Build release manifest
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          node scripts/build-release-manifest.mjs \
+            --version "$VERSION" \
+            --tag "${{ github.ref_name }}" \
+            --sha "$GITHUB_SHA" \
+            --release-notes "${{ steps.meta.outputs.release_notes_file }}" \
+            --mcp-tools "$RELEASE_ARTIFACT_DIR/mcp-tools-v${VERSION}.json" \
+            --pack-json "$RELEASE_ARTIFACT_DIR/npm-pack-v${VERSION}.json" \
+            --tarball-check "$RELEASE_ARTIFACT_DIR/npm-tarball-check-v${VERSION}.json" \
+            --audit "$RELEASE_ARTIFACT_DIR/audit-report-v${VERSION}.json" \
+            --audit-regression "$RELEASE_ARTIFACT_DIR/audit-regression-v${VERSION}.json" \
+            --doc-refresh "$RELEASE_ARTIFACT_DIR/doc-refresh-v${VERSION}.json" \
+            --out "$RELEASE_ARTIFACT_DIR/release-manifest-v${VERSION}.json"
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          gh release upload "${{ github.ref_name }}" \
+            "$RELEASE_ARTIFACT_DIR/release-integrity-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/release-notes-coverage-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/mcp-tools-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/docs-parity-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/npm-pack-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/npm-tarball-check-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/evalanche-${VERSION}.tgz" \
+            "$RELEASE_ARTIFACT_DIR/audit-report-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/audit-regression-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/release-smoke-v${VERSION}.json" \
+            "$RELEASE_ARTIFACT_DIR/release-manifest-v${VERSION}.json" \
+            --clobber
+
       - name: Publish to npm
         run: npm publish --provenance --access public --registry=https://registry.npmjs.org/
 
@@ -198,3 +311,31 @@ jobs:
             --version "${{ steps.meta.outputs.version }}" \
             --tags latest \
             --changelog "$CHANGELOG"
+
+      - name: Build release summary
+        if: always()
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          ASSETS="release-integrity-v${VERSION}.json,release-notes-coverage-v${VERSION}.json,mcp-tools-v${VERSION}.json,docs-parity-v${VERSION}.json,npm-pack-v${VERSION}.json,npm-tarball-check-v${VERSION}.json,evalanche-${VERSION}.tgz,audit-report-v${VERSION}.json,audit-regression-v${VERSION}.json,release-smoke-v${VERSION}.json,release-manifest-v${VERSION}.json"
+          node scripts/build-release-summary.mjs \
+            --version "$VERSION" \
+            --release-notes "${{ steps.meta.outputs.release_notes_file }}" \
+            --tests "${{ steps.tests.outcome || 'not_run' }}" \
+            --typecheck "${{ steps.typecheck.outcome || 'not_run' }}" \
+            --build "${{ steps.build.outcome || 'not_run' }}" \
+            --integrity "$RELEASE_ARTIFACT_DIR/release-integrity-v${VERSION}.json" \
+            --docs-parity "$RELEASE_ARTIFACT_DIR/docs-parity-v${VERSION}.json" \
+            --tarball-check "$RELEASE_ARTIFACT_DIR/npm-tarball-check-v${VERSION}.json" \
+            --audit-regression "$RELEASE_ARTIFACT_DIR/audit-regression-v${VERSION}.json" \
+            --mcp-tools "$RELEASE_ARTIFACT_DIR/mcp-tools-v${VERSION}.json" \
+            --smoke "$RELEASE_ARTIFACT_DIR/release-smoke-v${VERSION}.json" \
+            --manifest "$RELEASE_ARTIFACT_DIR/release-manifest-v${VERSION}.json" \
+            --assets "$ASSETS" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload workflow artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-v${{ steps.meta.outputs.version }}
+          path: ${{ env.RELEASE_ARTIFACT_DIR }}

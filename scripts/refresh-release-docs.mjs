@@ -169,12 +169,16 @@ function buildReleasingSection({ version, notesPath }) {
     `- Current release line: \`v${version}\``,
     `- Release notes path: \`${notePath}\``,
     '- Required workflow checks:',
+    '  - release integrity and notes coverage',
     '  - `npm test`',
     '  - `npm run typecheck`',
     '  - `npm run build`',
-    '  - docs refresh and README parity validation',
+    '  - docs refresh, MCP/docs parity, and README parity validation',
+    '  - package tarball and export validation',
+    '  - audit regression and read-only smoke validation',
     '- Publish targets:',
     '  - GitHub Release',
+    '  - GitHub Release assets',
     '  - npm package',
     '  - ClawHub skill',
   ].join('\n');
@@ -293,6 +297,11 @@ async function main() {
     releaseNotesPath: args['release-notes'],
     auditFile: args['audit-file'],
   });
+  if (args.out) {
+    const outPath = path.resolve(DEFAULT_ROOT, args.out);
+    await fs.mkdir(path.dirname(outPath), { recursive: true });
+    await fs.writeFile(outPath, `${JSON.stringify(result, null, 2)}\n`);
+  }
   console.log(JSON.stringify(result, null, 2));
 }
 
