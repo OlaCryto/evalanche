@@ -4721,8 +4721,41 @@ export class EvalancheMCPServer {
           break;
         }
 
-        case 'pm_redeem':
-          throw new Error('pm_redeem is not yet implemented (requires CTF contract interaction)');
+        case 'pm_redeem': {
+          const conditionId = this.requirePolymarketString(args, 'conditionId', 'pm_redeem');
+          const redemption = await this.getPolymarket().redeemPositions(conditionId);
+          result = {
+            tool: 'pm_redeem',
+            request: {
+              conditionId: redemption.conditionId,
+            },
+            submission: {
+              txHash: redemption.txHash,
+              status: redemption.receiptStatus,
+              collateralToken: redemption.collateralToken,
+              ctfContract: redemption.ctfContract,
+              parentCollectionId: redemption.parentCollectionId,
+              indexSets: redemption.indexSets,
+              tokenIds: redemption.tokenIds,
+              marketQuestion: redemption.marketQuestion,
+              winningOutcomes: redemption.winningOutcomes,
+            },
+            verification: {
+              blockNumber: redemption.blockNumber,
+              payoutVector: redemption.payoutVector,
+              usdcBefore: redemption.usdcBefore,
+              usdcAfter: redemption.usdcAfter,
+              usdcDelta: redemption.usdcDelta,
+              tokenBalancesBefore: redemption.tokenBalancesBefore,
+              tokenBalancesAfter: redemption.tokenBalancesAfter,
+            },
+            redeemed: redemption.receiptStatus === 'success',
+            txHash: redemption.txHash,
+            usdcDelta: redemption.usdcDelta,
+            winningOutcomes: redemption.winningOutcomes,
+          };
+          break;
+        }
 
 
         default:

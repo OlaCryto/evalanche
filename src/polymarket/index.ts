@@ -12,9 +12,6 @@
  * - place direct BUY and SELL orders through the SDK
  * - market-sell helper via `placeMarketSellOrder()`
  *
- * Current limitation:
- * - redemption of winning shares is not implemented in the MCP surface yet
- *
  * @example
  * ```ts
  * import { PolymarketClient, PolymarketSide } from 'evalanche/polymarket';
@@ -65,5 +62,6 @@ export type {
   PolymarketOrderResult,
   PolymarketOrderBook,
   PolymarketOrder,
+  PolymarketRedemptionResult,
 } from './client';
 export { PolymarketSide } from './client';

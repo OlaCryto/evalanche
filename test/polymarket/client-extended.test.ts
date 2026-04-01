@@ -266,6 +266,85 @@ describe('PolymarketClient.getOrderbook alias', () => {
   });
 });
 
+describe('PolymarketClient.redeemPositions', () => {
+  it('redeems winning positions through the CTF and returns balance deltas', async () => {
+    const client = makeClient();
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue('0xredeem'),
+    };
+    const publicClient = {
+      readContract: vi.fn(async ({ functionName, args }: any) => {
+        if (functionName === 'payoutDenominator') return 1n;
+        if (functionName === 'payoutNumerators') return args[1] === 0n ? 1n : 0n;
+        if (functionName === 'balanceOf') {
+          const callCount = publicClient.readContract.mock.calls.filter(([call]: any[]) => call.functionName === 'balanceOf').length;
+          return callCount === 1 ? 1_000_000n : 3_000_000n;
+        }
+        if (functionName === 'balanceOfBatch') {
+          const callCount = publicClient.readContract.mock.calls.filter(([call]: any[]) => call.functionName === 'balanceOfBatch').length;
+          return callCount === 1 ? [2n, 5n] : [0n, 0n];
+        }
+        return 0n;
+      }),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'success',
+        blockNumber: 123n,
+      }),
+    };
+
+    vi.spyOn(client as any, 'createPolygonClients').mockResolvedValue({
+      account: { address: '0x1234567890123456789012345678901234567890' },
+      walletClient,
+      publicClient,
+    });
+    vi.spyOn(client, 'getMarket').mockResolvedValue({
+      conditionId: `0x${'1'.repeat(64)}`,
+      question: 'Will YES win?',
+      tokens: [
+        { tokenId: '1', conditionId: `0x${'1'.repeat(64)}`, outcome: 'YES' },
+        { tokenId: '2', conditionId: `0x${'1'.repeat(64)}`, outcome: 'NO' },
+      ],
+    });
+
+    const result = await client.redeemPositions(`0x${'1'.repeat(64)}`);
+
+    expect(walletClient.writeContract).toHaveBeenCalledWith(expect.objectContaining({
+      functionName: 'redeemPositions',
+      args: [
+        '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+        `0x${'0'.repeat(64)}`,
+        `0x${'1'.repeat(64)}`,
+        [1n, 2n],
+      ],
+    }));
+    expect(result.receiptStatus).toBe('success');
+    expect(result.winningOutcomes).toEqual(['YES']);
+    expect(result.usdcDelta.formatted).toBe('2');
+    expect(result.tokenBalancesAfter).toEqual([
+      { tokenId: '1', outcome: 'YES', raw: '0' },
+      { tokenId: '2', outcome: 'NO', raw: '0' },
+    ]);
+  });
+
+  it('fails clearly when the condition is not resolved yet', async () => {
+    const client = makeClient();
+    const publicClient = {
+      readContract: vi.fn(async ({ functionName }: any) => {
+        if (functionName === 'payoutDenominator') return 0n;
+        return 0n;
+      }),
+    };
+
+    vi.spyOn(client as any, 'createPolygonClients').mockResolvedValue({
+      account: { address: '0x1234567890123456789012345678901234567890' },
+      walletClient: { writeContract: vi.fn() },
+      publicClient,
+    });
+
+    await expect(client.redeemPositions(`0x${'2'.repeat(64)}`)).rejects.toThrow(/not resolved/i);
+  });
+});
+
 // ── MCP server: pm_approve / pm_buy / pm_redeem ──────────────────────────────
 // Server-level integration smoke tests — no wallet/network needed.
 
@@ -290,10 +369,43 @@ describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
     expect(text).not.toMatch(/not implemented/i);
   });
 
-  it('pm_redeem returns not yet implemented', async () => {
-    const { isError, text } = await callServerTool('pm_redeem', { conditionId: '0x1' });
-    expect(isError).toBe(true);
-    expect(text).toMatch(/not yet implemented/i);
+  it('pm_redeem returns a redemption envelope', async () => {
+    const { isError, text } = await callServerTool('pm_redeem', { conditionId: `0x${'1'.repeat(64)}` }, (server) => {
+      (server as any).getPolymarket = vi.fn().mockReturnValue({
+        redeemPositions: vi.fn().mockResolvedValue({
+          conditionId: `0x${'1'.repeat(64)}`,
+          txHash: '0xredeem',
+          receiptStatus: 'success',
+          blockNumber: '123',
+          collateralToken: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+          ctfContract: '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045',
+          parentCollectionId: `0x${'0'.repeat(64)}`,
+          indexSets: ['1', '2'],
+          tokenIds: ['1', '2'],
+          marketQuestion: 'Will YES win?',
+          winningOutcomes: ['YES'],
+          payoutVector: ['1', '0'],
+          usdcBefore: { raw: '1000000', formatted: '1' },
+          usdcAfter: { raw: '3000000', formatted: '3' },
+          usdcDelta: { raw: '2000000', formatted: '2' },
+          tokenBalancesBefore: [
+            { tokenId: '1', outcome: 'YES', raw: '2' },
+            { tokenId: '2', outcome: 'NO', raw: '5' },
+          ],
+          tokenBalancesAfter: [
+            { tokenId: '1', outcome: 'YES', raw: '0' },
+            { tokenId: '2', outcome: 'NO', raw: '0' },
+          ],
+        }),
+      });
+    });
+
+    expect(isError).toBe(false);
+    const payload = JSON.parse(text);
+    expect(payload.redeemed).toBe(true);
+    expect(payload.txHash).toBe('0xredeem');
+    expect(payload.verification.usdcDelta.formatted).toBe('2');
+    expect(payload.submission.winningOutcomes).toEqual(['YES']);
   });
 
   it('pm_buy returns a rejected submission envelope when the venue geoblocks the order', async () => {
