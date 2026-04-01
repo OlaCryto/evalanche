@@ -321,9 +321,9 @@ jobs:
           node scripts/build-release-summary.mjs \
             --version "$VERSION" \
             --release-notes "${{ steps.meta.outputs.release_notes_file }}" \
-            --tests "${{ steps.tests.outcome || 'not_run' }}" \
-            --typecheck "${{ steps.typecheck.outcome || 'not_run' }}" \
-            --build "${{ steps.build.outcome || 'not_run' }}" \
+            --tests "${{ steps.tests.outcome }}" \
+            --typecheck "${{ steps.typecheck.outcome }}" \
+            --build "${{ steps.build.outcome }}" \
             --integrity "$RELEASE_ARTIFACT_DIR/release-integrity-v${VERSION}.json" \
             --docs-parity "$RELEASE_ARTIFACT_DIR/docs-parity-v${VERSION}.json" \
             --tarball-check "$RELEASE_ARTIFACT_DIR/npm-tarball-check-v${VERSION}.json" \
