@@ -5,13 +5,13 @@ Avalanche-first agent wallet and execution SDK for AI agents, with multi-EVM sup
 <!-- GENERATED:release-summary:start -->
 ## Current Release
 
-- Latest release: [v1.8.8](docs/releases/RELEASE_NOTES_1.8.8.md)
-- Published package: `evalanche@1.8.8`
+- Latest release: [v1.8.9](docs/releases/RELEASE_NOTES_1.8.9.md)
+- Published package: `evalanche@1.8.9`
 - Current package surface:
-  - Added a universal in-repo holdings registry shared by all agents
-  - Added unified holdings scanning through `agent.holdings().scan()`
-  - Added MCP tools: `get_holdings` `search_registry` `registry_status`
-  - Unified DeFi routing and holdings discovery onto the same universal registry
+  - Added real `pm_redeem` support through the Polymarket Conditional Tokens Framework on Polygon
+  - `pm_redeem` now verifies resolution onchain, submits `redeemPositions`, and reports USDC plus token-balance deltas
+  - Expanded the release workflow into a stricter certification pipeline with integrity, docs-parity, tarball, audit-regression, smoke, and manifest gates
+  - Fixed published package entrypoints so the tarball matches the actual build output for both CommonJS and ESM consumers
 - Docs:
   - [Release notes](docs/releases/README.md)
   - [Roadmap](ROADMAP.md)
