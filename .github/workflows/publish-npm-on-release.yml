@@ -13,7 +13,7 @@ jobs:
       id-token: write
     env:
       NODE_VERSION: '20'
-      RELEASE_ARTIFACT_DIR: ${{ runner.temp }}/release-artifacts
+      RELEASE_ARTIFACT_DIR: .release-artifacts
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.1
