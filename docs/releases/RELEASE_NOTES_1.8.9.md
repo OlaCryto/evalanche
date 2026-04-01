@@ -1,9 +1,9 @@
 ## Highlights
 
-- Added real `pm_redeem` support through the Polymarket Conditional Tokens Framework on Polygon
+- Implemented Polymarket redemption through the real `pm_redeem` path on the Conditional Tokens Framework on Polygon
 - `pm_redeem` now verifies resolution onchain, submits `redeemPositions`, and reports USDC plus token-balance deltas
 - Expanded the release workflow into a stricter certification pipeline with integrity, docs-parity, tarball, audit-regression, smoke, and manifest gates
-- Fixed published package entrypoints so the tarball matches the actual build output for both CommonJS and ESM consumers
+- Aligned published package entrypoints with the actual build output so the tarball matches both CommonJS and ESM consumers
 - Simplified release notes by removing redundant in-file version titles; the filename and GitHub Release title now carry version identity
 
 ## Validation
