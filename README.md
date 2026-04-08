@@ -64,11 +64,16 @@ Avalanche is the primary path, but Evalanche also supports Base, Ethereum, Arbit
 - [Roadmap](ROADMAP.md)
 - [Release notes](docs/releases/README.md)
 - [Release process](RELEASING.md)
+- [Website source](website/README.md)
 - [Smoke checklist](docs/live-smoke-checklist.md)
 - [Protocol notes](docs/eva-protocol.md)
 - [Security](SECURITY.md)
 - [Open gaps](GAPS.md)
 - [Security posture](VULN_NOTES.md)
+
+## Website
+
+The public site for [evalanche.xyz](https://evalanche.xyz) lives in [website/](/Users/jaack/Desktop/Github/evalanche/website). It is deployed separately from the npm package and is not included in the published package tarball.
 
 ## License
 
