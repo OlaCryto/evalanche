@@ -207,6 +207,7 @@ AVALANCHE_NETWORK=base evalanche-mcp
 | `pm_sell` | Slippage-protected immediate YES/NO sell toward a target USDC proceeds amount |
 | `pm_limit_sell` | Post or take a YES/NO limit sell depending on `postOnly` |
 | `pm_reconcile` | Reconcile balances, positions, orders, and trades against venue truth |
+| `pm_withdraw` | Withdraw Polygon USDC.e from the Polymarket wallet through the official Polymarket bridge |
 | `pm_redeem` | Redeem winning positions from a resolved Polymarket market for USDC via the CTF contract |
 
 ### Contract Interaction Helpers (v0.9.0)

@@ -345,10 +345,105 @@ describe('PolymarketClient.redeemPositions', () => {
   });
 });
 
-// ── MCP server: pm_approve / pm_buy / pm_redeem ──────────────────────────────
+describe('PolymarketClient.withdrawUsdc', () => {
+  it('creates a bridge quote, creates withdrawal addresses, transfers USDC.e, and returns bridge status', async () => {
+    const client = makeClient();
+    const walletClient = {
+      writeContract: vi.fn().mockResolvedValue('0xwithdraw'),
+    };
+    const publicClient = {
+      readContract: vi.fn(async ({ functionName }: any) => {
+        if (functionName === 'balanceOf') {
+          const callCount = publicClient.readContract.mock.calls.filter(([call]: any[]) => call.functionName === 'balanceOf').length;
+          return callCount === 1 ? 5_000_000n : 3_500_000n;
+        }
+        return 0n;
+      }),
+      waitForTransactionReceipt: vi.fn().mockResolvedValue({
+        status: 'success',
+        blockNumber: 321n,
+      }),
+    };
+
+    vi.spyOn(client as any, 'createPolygonClients').mockResolvedValue({
+      account: { address: '0x1234567890123456789012345678901234567890' },
+      walletClient,
+      publicClient,
+    });
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          quoteId: 'quote-1',
+          estCheckoutTimeMs: 25000,
+          estInputUsd: 1.5,
+          estOutputUsd: 1.48,
+          estToTokenBaseUnit: '1480000',
+          estFeeBreakdown: { minReceived: 1.48 },
+        }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers(),
+        json: async () => ({
+          address: {
+            evm: '0x23566f8b2E82aDfCf01846E54899d110e97AC053',
+            svm: 'CrvTBvzryYxBHbWu2TiQpcqD5M7Le7iBKzVmEj3f36Jb',
+          },
+          note: 'Send funds to these addresses to bridge to your destination chain and token.',
+        }),
+      } as any)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          transactions: [
+            {
+              fromChainId: '137',
+              fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+              fromAmountBaseUnit: '1500000',
+              toChainId: '8453',
+              toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+              createdTimeMs: 1757646914535,
+              status: 'PROCESSING',
+            },
+          ],
+        }),
+      } as any);
+
+    const result = await client.withdrawUsdc({
+      amountUSDC: '1.5',
+      toChainId: '8453',
+      toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      recipientAddr: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    });
+
+    expect(walletClient.writeContract).toHaveBeenCalledWith(expect.objectContaining({
+      functionName: 'transfer',
+      args: ['0x23566f8b2E82aDfCf01846E54899d110e97AC053', 1_500_000n],
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/quote');
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/withdraw');
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/status/0x23566f8b2E82aDfCf01846E54899d110e97AC053');
+    expect(result.quote.quoteId).toBe('quote-1');
+    expect(result.bridgeAddress).toBe('0x23566f8b2E82aDfCf01846E54899d110e97AC053');
+    expect(result.receiptStatus).toBe('success');
+    expect(result.bridgeTransaction?.status).toBe('PROCESSING');
+    expect(result.usdcDelta.formatted).toBe('-1.5');
+  });
+});
+
+// ── MCP server: pm_approve / pm_buy / pm_withdraw / pm_redeem ─────────────────
 // Server-level integration smoke tests — no wallet/network needed.
 
-describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
+describe('MCP server pm_approve/pm_buy/pm_withdraw/pm_redeem', () => {
   it('pm_approve attempts CLOB auth (no longer throws unimplemented)', async () => {
     const { isError, text } = await callServerTool('pm_approve', { amount: '100' }, (server) => {
       (server as any).approveUsdcToCLOB = vi.fn().mockResolvedValue('0xapprove');
@@ -406,6 +501,61 @@ describe('MCP server pm_approve/pm_buy/pm_redeem', () => {
     expect(payload.txHash).toBe('0xredeem');
     expect(payload.verification.usdcDelta.formatted).toBe('2');
     expect(payload.submission.winningOutcomes).toEqual(['YES']);
+  });
+
+  it('pm_withdraw returns a bridge withdrawal envelope', async () => {
+    const { isError, text } = await callServerTool(
+      'pm_withdraw',
+      {
+        amountUSDC: '1',
+        toChainId: '8453',
+        toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        recipientAddr: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      },
+      (server) => {
+        (server as any).getPolymarket = vi.fn().mockReturnValue({
+          withdrawUsdc: vi.fn().mockResolvedValue({
+            fromChainId: '137',
+            toChainId: '8453',
+            fromTokenAddress: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+            toTokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            recipientAddr: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+            quote: {
+              quoteId: 'quote-1',
+              estCheckoutTimeMs: 25000,
+              estToTokenBaseUnit: '999000',
+            },
+            bridgeAddresses: {
+              evm: '0x23566f8b2E82aDfCf01846E54899d110e97AC053',
+            },
+            bridgeAddress: '0x23566f8b2E82aDfCf01846E54899d110e97AC053',
+            bridgeNote: 'Send funds to these addresses to bridge to your destination chain and token.',
+            txHash: '0xwithdraw',
+            receiptStatus: 'success',
+            blockNumber: '321',
+            amountBaseUnit: '1000000',
+            amountUSDC: '1',
+            usdcBefore: { raw: '5000000', formatted: '5' },
+            usdcAfter: { raw: '4000000', formatted: '4' },
+            usdcDelta: { raw: '-1000000', formatted: '-1' },
+            bridgeStatus: {
+              transactions: [
+                { status: 'PROCESSING', toChainId: '8453', fromAmountBaseUnit: '1000000' },
+              ],
+            },
+            bridgeTransaction: { status: 'PROCESSING', toChainId: '8453', fromAmountBaseUnit: '1000000' },
+          }),
+        });
+      },
+    );
+
+    expect(isError).toBe(false);
+    const payload = JSON.parse(text);
+    expect(payload.withdrawn).toBe(true);
+    expect(payload.txHash).toBe('0xwithdraw');
+    expect(payload.quote.quoteId).toBe('quote-1');
+    expect(payload.submission.bridgeAddress).toBe('0x23566f8b2E82aDfCf01846E54899d110e97AC053');
+    expect(payload.verification.bridgeTransaction.status).toBe('PROCESSING');
   });
 
   it('pm_buy returns a rejected submission envelope when the venue geoblocks the order', async () => {

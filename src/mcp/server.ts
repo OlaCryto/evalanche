@@ -1411,6 +1411,20 @@ const TOOLS: MCPTool[] = [
     },
   },
   {
+    name: 'pm_withdraw',
+    description: 'Withdraw Polymarket wallet USDC.e from Polygon to another chain/token through the official Polymarket bridge flow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        amountUSDC: { type: 'string', description: 'Amount of Polygon USDC.e to withdraw from the Polymarket wallet (e.g. "10")' },
+        toChainId: { type: 'string', description: 'Destination chain ID (e.g. "1" Ethereum, "8453" Base, "1151111081099710" Solana)' },
+        toTokenAddress: { type: 'string', description: 'Destination token contract address or mint supported by the Polymarket bridge' },
+        recipientAddr: { type: 'string', description: 'Destination wallet address that should receive the bridged funds' },
+      },
+      required: ['amountUSDC', 'toChainId', 'toTokenAddress', 'recipientAddr'],
+    },
+  },
+  {
     name: 'pm_approve',
     description: 'Approve USDC spending for Polymarket exchange on Polygon',
     inputSchema: {
@@ -4037,6 +4051,51 @@ export class EvalancheMCPServer {
             approveTxHash: approveHash,
             CLOBContract: CLOB_CONTRACT,
             note: 'registerCollateral called — USDC now in CLOB collateral balance',
+          };
+          break;
+        }
+
+        case 'pm_withdraw': {
+          const amountUSDC = this.requirePolymarketString(args, 'amountUSDC', 'pm_withdraw');
+          const toChainId = this.requirePolymarketString(args, 'toChainId', 'pm_withdraw');
+          const toTokenAddress = this.requirePolymarketString(args, 'toTokenAddress', 'pm_withdraw');
+          const recipientAddr = this.requirePolymarketString(args, 'recipientAddr', 'pm_withdraw');
+          const withdrawal = await this.getPolymarket().withdrawUsdc({
+            amountUSDC,
+            toChainId,
+            toTokenAddress,
+            recipientAddr,
+          });
+          result = {
+            tool: 'pm_withdraw',
+            request: {
+              amountUSDC: withdrawal.amountUSDC,
+              toChainId: withdrawal.toChainId,
+              toTokenAddress: withdrawal.toTokenAddress,
+              recipientAddr: withdrawal.recipientAddr,
+            },
+            quote: withdrawal.quote,
+            submission: {
+              txHash: withdrawal.txHash,
+              status: withdrawal.receiptStatus,
+              fromChainId: withdrawal.fromChainId,
+              fromTokenAddress: withdrawal.fromTokenAddress,
+              bridgeAddress: withdrawal.bridgeAddress,
+              bridgeAddresses: withdrawal.bridgeAddresses,
+              bridgeNote: withdrawal.bridgeNote,
+              amountBaseUnit: withdrawal.amountBaseUnit,
+            },
+            verification: {
+              blockNumber: withdrawal.blockNumber,
+              usdcBefore: withdrawal.usdcBefore,
+              usdcAfter: withdrawal.usdcAfter,
+              usdcDelta: withdrawal.usdcDelta,
+              bridgeTransaction: withdrawal.bridgeTransaction,
+              bridgeTransactions: withdrawal.bridgeStatus?.transactions ?? [],
+            },
+            withdrawn: withdrawal.receiptStatus === 'success',
+            txHash: withdrawal.txHash,
+            bridgeStatus: withdrawal.bridgeTransaction?.status ?? null,
           };
           break;
         }

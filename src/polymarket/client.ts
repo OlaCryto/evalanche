@@ -13,6 +13,7 @@
  * Writes:
  * - direct BUY and SELL orders through `placeOrder()`
  * - market sells through `placeMarketSellOrder()`
+ * - bridge withdrawals of Polygon USDC.e via `withdrawUsdc()`
  * - winning-share redemption through the CTF `redeemPositions()` path
  *
  * Official SDK: @polymarket/clob-client
@@ -29,6 +30,7 @@ import { safeFetch } from '../utils/safe-fetch';
 
 export const POLYMARKET_CLOB_HOST = 'https://clob.polymarket.com';
 export const POLYMARKET_GAMMA_HOST = 'https://gamma-api.polymarket.com';
+export const POLYMARKET_BRIDGE_HOST = 'https://bridge.polymarket.com';
 export const POLYMARKET_USDC_E = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 export const POLYMARKET_CTF = '0x4D97DCd97eC945f40cF65F87097ACe5EA0476045';
 export const POLYMARKET_PARENT_COLLECTION_ID = `0x${'0'.repeat(64)}`;
@@ -41,6 +43,19 @@ const ERC20_BALANCE_OF_ABI = [
     inputs: [{ name: 'account', type: 'address' }],
     outputs: [{ name: '', type: 'uint256' }],
     stateMutability: 'view',
+  },
+] as const;
+
+const ERC20_TRANSFER_ABI = [
+  {
+    name: 'transfer',
+    type: 'function',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+    stateMutability: 'nonpayable',
   },
 ] as const;
 
@@ -157,6 +172,55 @@ export interface PolymarketRedemptionResult {
   tokenBalancesAfter: Array<{ tokenId: string; outcome?: string; raw: string }>;
 }
 
+export interface PolymarketBridgeQuote {
+  quoteId: string;
+  estCheckoutTimeMs?: number;
+  estInputUsd?: number;
+  estOutputUsd?: number;
+  estToTokenBaseUnit?: string;
+  estFeeBreakdown?: Record<string, unknown>;
+}
+
+export interface PolymarketBridgeAddresses {
+  evm?: string;
+  svm?: string;
+  btc?: string;
+  tvm?: string;
+}
+
+export interface PolymarketBridgeStatusTransaction {
+  fromChainId?: string;
+  fromTokenAddress?: string;
+  fromAmountBaseUnit?: string;
+  toChainId?: string;
+  toTokenAddress?: string;
+  txHash?: string;
+  createdTimeMs?: number;
+  status?: string;
+}
+
+export interface PolymarketWithdrawalResult {
+  fromChainId: string;
+  toChainId: string;
+  fromTokenAddress: string;
+  toTokenAddress: string;
+  recipientAddr: string;
+  quote: PolymarketBridgeQuote;
+  bridgeAddresses: PolymarketBridgeAddresses;
+  bridgeAddress: string;
+  bridgeNote?: string;
+  txHash: string;
+  receiptStatus: 'success' | 'reverted';
+  blockNumber: string;
+  amountBaseUnit: string;
+  amountUSDC: string;
+  usdcBefore: { raw: string; formatted: string };
+  usdcAfter: { raw: string; formatted: string };
+  usdcDelta: { raw: string; formatted: string };
+  bridgeStatus: { transactions: PolymarketBridgeStatusTransaction[] } | null;
+  bridgeTransaction: PolymarketBridgeStatusTransaction | null;
+}
+
 interface GammaMarketRecord extends Record<string, unknown> {
   conditionId?: string;
   question?: string;
@@ -183,10 +247,71 @@ interface ClobMarketRecord extends Record<string, unknown> {
   tokens?: unknown[];
 }
 
+interface BridgeQuoteRecord extends Record<string, unknown> {
+  quoteId?: string;
+  estCheckoutTimeMs?: number | string;
+  estInputUsd?: number | string;
+  estOutputUsd?: number | string;
+  estToTokenBaseUnit?: string;
+  estFeeBreakdown?: Record<string, unknown>;
+}
+
+interface BridgeAddressRecord extends Record<string, unknown> {
+  evm?: string;
+  svm?: string;
+  btc?: string;
+  tvm?: string;
+}
+
+interface BridgeWithdrawalAddressRecord extends Record<string, unknown> {
+  address?: BridgeAddressRecord;
+  note?: string;
+}
+
+interface BridgeStatusRecord extends Record<string, unknown> {
+  transactions?: unknown[];
+}
+
 function polymarketHeaders(): Record<string, string> {
   return {
     Accept: 'application/json',
     'User-Agent': 'evalanche/1.6.0 (+https://github.com/ijaack/evalanche)',
+  };
+}
+
+function normalizeBridgeQuote(record: BridgeQuoteRecord): PolymarketBridgeQuote {
+  return {
+    quoteId: String(record.quoteId ?? ''),
+    estCheckoutTimeMs: toNumber(record.estCheckoutTimeMs),
+    estInputUsd: toNumber(record.estInputUsd),
+    estOutputUsd: toNumber(record.estOutputUsd),
+    estToTokenBaseUnit: typeof record.estToTokenBaseUnit === 'string' ? record.estToTokenBaseUnit : undefined,
+    estFeeBreakdown: typeof record.estFeeBreakdown === 'object' && record.estFeeBreakdown
+      ? record.estFeeBreakdown
+      : undefined,
+  };
+}
+
+function normalizeBridgeAddresses(record: BridgeAddressRecord | undefined): PolymarketBridgeAddresses {
+  return {
+    evm: typeof record?.evm === 'string' ? record.evm : undefined,
+    svm: typeof record?.svm === 'string' ? record.svm : undefined,
+    btc: typeof record?.btc === 'string' ? record.btc : undefined,
+    tvm: typeof record?.tvm === 'string' ? record.tvm : undefined,
+  };
+}
+
+function normalizeBridgeStatusTransaction(record: unknown): PolymarketBridgeStatusTransaction {
+  const tx = (record ?? {}) as Record<string, unknown>;
+  return {
+    fromChainId: typeof tx.fromChainId === 'string' ? tx.fromChainId : undefined,
+    fromTokenAddress: typeof tx.fromTokenAddress === 'string' ? tx.fromTokenAddress : undefined,
+    fromAmountBaseUnit: typeof tx.fromAmountBaseUnit === 'string' ? tx.fromAmountBaseUnit : undefined,
+    toChainId: typeof tx.toChainId === 'string' ? tx.toChainId : undefined,
+    toTokenAddress: typeof tx.toTokenAddress === 'string' ? tx.toTokenAddress : undefined,
+    txHash: typeof tx.txHash === 'string' ? tx.txHash : undefined,
+    createdTimeMs: toNumber(tx.createdTimeMs),
+    status: typeof tx.status === 'string' ? tx.status : undefined,
   };
 }
 
@@ -359,6 +484,112 @@ export class PolymarketClient {
       functionName: 'balanceOf',
       args: [address],
     }) as bigint;
+  }
+
+  private async bridgeRequest<T>(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: Record<string, unknown>,
+    expectedStatus: number[] = [200],
+  ): Promise<T> {
+    const response = await safeFetch(new URL(path, POLYMARKET_BRIDGE_HOST), {
+      method,
+      headers: {
+        ...polymarketHeaders(),
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      timeoutMs: 15_000,
+      maxBytes: 1_000_000,
+      blockPrivateNetwork: true,
+    });
+
+    if (!expectedStatus.includes(response.status)) {
+      const responseText = await response.text().catch(() => '');
+      let message = `Bridge request failed with status ${response.status}`;
+      if (responseText) {
+        try {
+          const parsed = JSON.parse(responseText) as Record<string, unknown>;
+          const candidate = parsed.message ?? parsed.error ?? parsed.detail;
+          if (typeof candidate === 'string' && candidate.trim().length > 0) {
+            message = candidate;
+          } else {
+            message = `${message}: ${responseText.slice(0, 240)}`;
+          }
+        } catch {
+          message = `${message}: ${responseText.slice(0, 240)}`;
+        }
+      }
+      throw new EvalancheError(message, EvalancheErrorCode.BRIDGE_FAILED);
+    }
+
+    return await response.json() as T;
+  }
+
+  private async getBridgeQuote(params: {
+    amountBaseUnit: string;
+    toChainId: string;
+    toTokenAddress: string;
+    recipientAddr: string;
+  }): Promise<PolymarketBridgeQuote> {
+    const payload = await this.bridgeRequest<BridgeQuoteRecord>(
+      'POST',
+      '/quote',
+      {
+        fromAmountBaseUnit: params.amountBaseUnit,
+        fromChainId: '137',
+        fromTokenAddress: POLYMARKET_USDC_E,
+        recipientAddress: params.recipientAddr,
+        toChainId: params.toChainId,
+        toTokenAddress: params.toTokenAddress,
+      },
+      [200],
+    );
+    const quote = normalizeBridgeQuote(payload);
+    if (!quote.quoteId) {
+      throw new EvalancheError(
+        'Polymarket bridge quote response did not include a quoteId',
+        EvalancheErrorCode.BRIDGE_QUOTE_FAILED,
+      );
+    }
+    return quote;
+  }
+
+  private async createWithdrawalAddresses(params: {
+    address: `0x${string}`;
+    toChainId: string;
+    toTokenAddress: string;
+    recipientAddr: string;
+  }): Promise<{ addresses: PolymarketBridgeAddresses; note?: string }> {
+    const payload = await this.bridgeRequest<BridgeWithdrawalAddressRecord>(
+      'POST',
+      '/withdraw',
+      {
+        address: params.address,
+        toChainId: params.toChainId,
+        toTokenAddress: params.toTokenAddress,
+        recipientAddr: params.recipientAddr,
+      },
+      [201],
+    );
+    return {
+      addresses: normalizeBridgeAddresses(payload.address),
+      note: typeof payload.note === 'string' ? payload.note : undefined,
+    };
+  }
+
+  private async getBridgeStatus(address: string): Promise<{ transactions: PolymarketBridgeStatusTransaction[] }> {
+    const payload = await this.bridgeRequest<BridgeStatusRecord>(
+      'GET',
+      `/status/${encodeURIComponent(address)}`,
+      undefined,
+      [200],
+    );
+    return {
+      transactions: Array.isArray(payload.transactions)
+        ? payload.transactions.map((entry) => normalizeBridgeStatusTransaction(entry))
+        : [],
+    };
   }
 
   private async readPayoutVector(publicClient: any, conditionId: `0x${string}`): Promise<bigint[]> {
@@ -934,6 +1165,135 @@ export class PolymarketClient {
       averageFillPrice: avgPrice,
       totalUSDC: filledSize * avgPrice,
       tokenId,
+    };
+  }
+
+  async withdrawUsdc(params: {
+    amountUSDC: string | number;
+    toChainId: string | number;
+    toTokenAddress: string;
+    recipientAddr: string;
+  }): Promise<PolymarketWithdrawalResult> {
+    const rawAmount = String(params.amountUSDC ?? '').trim();
+    const toChainId = String(params.toChainId ?? '').trim();
+    const toTokenAddress = String(params.toTokenAddress ?? '').trim();
+    const recipientAddr = String(params.recipientAddr ?? '').trim();
+
+    if (!rawAmount || Number(rawAmount) <= 0) {
+      throw new EvalancheError(
+        `Invalid amountUSDC: expected a positive number, got ${params.amountUSDC}`,
+        EvalancheErrorCode.INVALID_PARAMS,
+      );
+    }
+    if (!toChainId) {
+      throw new EvalancheError('pm_withdraw requires toChainId', EvalancheErrorCode.INVALID_PARAMS);
+    }
+    if (!toTokenAddress) {
+      throw new EvalancheError('pm_withdraw requires toTokenAddress', EvalancheErrorCode.INVALID_PARAMS);
+    }
+    if (!recipientAddr) {
+      throw new EvalancheError('pm_withdraw requires recipientAddr', EvalancheErrorCode.INVALID_PARAMS);
+    }
+
+    const { formatUnits, parseUnits } = await import('viem');
+    const amountBaseUnit = parseUnits(rawAmount, 6);
+    const { account, walletClient, publicClient } = await this.createPolygonClients();
+
+    const usdcBeforeRaw = await this.readUsdcBalance(publicClient, account.address);
+    if (usdcBeforeRaw < amountBaseUnit) {
+      throw new EvalancheError(
+        `Insufficient Polymarket wallet USDC balance. Have ${formatUnits(usdcBeforeRaw, 6)}, need ${rawAmount}.`,
+        EvalancheErrorCode.INSUFFICIENT_BALANCE,
+      );
+    }
+
+    const quote = await this.getBridgeQuote({
+      amountBaseUnit: amountBaseUnit.toString(),
+      toChainId,
+      toTokenAddress,
+      recipientAddr,
+    });
+    const withdrawalAddresses = await this.createWithdrawalAddresses({
+      address: account.address,
+      toChainId,
+      toTokenAddress,
+      recipientAddr,
+    });
+    const bridgeAddress = withdrawalAddresses.addresses.evm;
+    if (!bridgeAddress || !/^0x[a-fA-F0-9]{40}$/.test(bridgeAddress)) {
+      throw new EvalancheError(
+        'Polymarket bridge did not return a usable EVM deposit address for withdrawal.',
+        EvalancheErrorCode.BRIDGE_FAILED,
+      );
+    }
+
+    let txHash: `0x${string}`;
+    try {
+      txHash = await walletClient.writeContract({
+        address: POLYMARKET_USDC_E as `0x${string}`,
+        abi: ERC20_TRANSFER_ABI,
+        functionName: 'transfer',
+        args: [bridgeAddress as `0x${string}`, amountBaseUnit],
+      });
+    } catch (error) {
+      throw new EvalancheError(
+        `Failed to submit Polymarket withdrawal transfer: ${error instanceof Error ? error.message : String(error)}`,
+        EvalancheErrorCode.TRANSFER_FAILED,
+        error instanceof Error ? error : undefined,
+      );
+    }
+
+    let receipt: any;
+    try {
+      receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
+    } catch (error) {
+      throw new EvalancheError(
+        `Polymarket withdrawal transfer submitted but receipt lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+        EvalancheErrorCode.TRANSACTION_FAILED,
+        error instanceof Error ? error : undefined,
+      );
+    }
+
+    const usdcAfterRaw = await this.readUsdcBalance(publicClient, account.address);
+    const bridgeStatus = await this.getBridgeStatus(bridgeAddress).catch(() => null);
+    const matchingTransactions = bridgeStatus?.transactions
+      ?.filter((transaction) => (
+        transaction.fromAmountBaseUnit === amountBaseUnit.toString()
+        && transaction.toChainId === toChainId
+        && typeof transaction.toTokenAddress === 'string'
+        && transaction.toTokenAddress.toLowerCase() === toTokenAddress.toLowerCase()
+      ))
+      .sort((left, right) => (right.createdTimeMs ?? 0) - (left.createdTimeMs ?? 0)) ?? [];
+
+    return {
+      fromChainId: '137',
+      toChainId,
+      fromTokenAddress: POLYMARKET_USDC_E,
+      toTokenAddress,
+      recipientAddr,
+      quote,
+      bridgeAddresses: withdrawalAddresses.addresses,
+      bridgeAddress,
+      bridgeNote: withdrawalAddresses.note,
+      txHash,
+      receiptStatus: receipt?.status === 'success' ? 'success' : 'reverted',
+      blockNumber: String(receipt?.blockNumber ?? ''),
+      amountBaseUnit: amountBaseUnit.toString(),
+      amountUSDC: formatUnits(amountBaseUnit, 6),
+      usdcBefore: {
+        raw: usdcBeforeRaw.toString(),
+        formatted: formatUnits(usdcBeforeRaw, 6),
+      },
+      usdcAfter: {
+        raw: usdcAfterRaw.toString(),
+        formatted: formatUnits(usdcAfterRaw, 6),
+      },
+      usdcDelta: {
+        raw: (usdcAfterRaw - usdcBeforeRaw).toString(),
+        formatted: formatUnits(usdcAfterRaw - usdcBeforeRaw, 6),
+      },
+      bridgeStatus,
+      bridgeTransaction: matchingTransactions[0] ?? null,
     };
   }
 

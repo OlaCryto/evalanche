@@ -53,7 +53,7 @@
  * ```
  */
 
-export { PolymarketClient, POLYMARKET_CLOB_HOST } from './client';
+export { PolymarketClient, POLYMARKET_BRIDGE_HOST, POLYMARKET_CLOB_HOST } from './client';
 export type {
   PolymarketChain,
   PolymarketMarket,
@@ -62,6 +62,7 @@ export type {
   PolymarketOrderResult,
   PolymarketOrderBook,
   PolymarketOrder,
+  PolymarketWithdrawalResult,
   PolymarketRedemptionResult,
 } from './client';
 export { PolymarketSide } from './client';
