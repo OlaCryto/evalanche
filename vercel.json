@@ -1,0 +1,6 @@
+{
+  "installCommand": "echo \"Skipping package install for static website deploy\"",
+  "buildCommand": "node scripts/build-website.mjs",
+  "outputDirectory": "website-dist",
+  "cleanUrls": true
+}

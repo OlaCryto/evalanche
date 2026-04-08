@@ -74,6 +74,7 @@ Avalanche is the primary path, but Evalanche also supports Base, Ethereum, Arbit
 ## Website
 
 The public site for [evalanche.xyz](https://evalanche.xyz) lives in [website/](/Users/jaack/Desktop/Github/evalanche/website). It is deployed separately from the npm package and is not included in the published package tarball.
+Git-based Vercel deploys use [vercel.json](/Users/jaack/Desktop/Github/evalanche/vercel.json) plus [build-website.mjs](/Users/jaack/Desktop/Github/evalanche/scripts/build-website.mjs) to publish only the website assets, not the SDK build.
 
 ## License
 

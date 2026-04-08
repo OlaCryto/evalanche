@@ -1,5 +1,6 @@
 node_modules/
 dist/
+website-dist/
 *.tsbuildinfo
 *.db
 .DS_Store
