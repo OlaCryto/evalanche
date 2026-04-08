@@ -5,12 +5,12 @@ This is the active roadmap for the repository.
 <!-- GENERATED:roadmap-release:start -->
 ## Latest Shipped Release
 
-- Latest release: [v1.8.9](docs/releases/RELEASE_NOTES_1.8.9.md)
-- Shipped in `v1.8.9`:
-  - Implemented Polymarket redemption through the real `pm_redeem` path on the Conditional Tokens Framework on Polygon
-  - `pm_redeem` now verifies resolution onchain, submits `redeemPositions`, and reports USDC plus token-balance deltas
-  - Expanded the release workflow into a stricter certification pipeline with integrity, docs-parity, tarball, audit-regression, smoke, and manifest gates
-  - Aligned published package entrypoints with the actual build output so the tarball matches both CommonJS and ESM consumers
+- Latest release: [v1.9.0](docs/releases/RELEASE_NOTES_1.9.0.md)
+- Shipped in `v1.9.0`:
+  - Implemented `pm_withdraw`, so Evalanche can now withdraw Polygon `USDC.e` from the Polymarket wallet through the official Polymarket bridge flow
+  - `pm_withdraw` gets a bridge quote, creates withdrawal addresses, submits the onchain `USDC.e` transfer, and returns the initial bridge-status snapshot for verification
+  - MCP now exposes `pm_withdraw` alongside the existing Polymarket trading, reconciliation, deposit, and redemption flows
+  - Added focused client and MCP regression coverage for the new Polymarket withdrawal path
 
 ## Current Focus
 
