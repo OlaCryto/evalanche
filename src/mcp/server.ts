@@ -7,7 +7,7 @@ import { EvalancheError, EvalancheErrorCode } from '../utils/errors';
 import { getNetworkConfig } from '../utils/networks';
 import { getAllChains } from '../utils/chains';
 import { NATIVE_TOKEN } from '../bridge/lifi';
-import { safeFetch } from '../utils/safe-fetch';
+import { safeFetch, assertSafeUrl } from '../utils/safe-fetch';
 import { CoinGeckoClient } from '../market/coingecko';
 import { PolymarketClient } from '../polymarket';
 import { DiscoveryClient } from '../economy/discovery';
@@ -1696,9 +1696,16 @@ export class EvalancheMCPServer {
 
       case 'negotiate_task':
         return async (input: string, metadata?: Record<string, unknown>) => {
+          const toAgentId = metadata?.toAgentId as string | undefined;
+          if (!toAgentId) {
+            throw new EvalancheError(
+              'negotiate_task requires metadata.toAgentId — the target agent ID to negotiate with',
+              EvalancheErrorCode.A2A_ERROR,
+            );
+          }
           const proposalId = negotiation.propose({
             fromAgentId: (metadata?.fromAgentId as string) ?? agent.address,
-            toAgentId: (metadata?.toAgentId as string) ?? '',
+            toAgentId,
             task: input,
             price: (metadata?.price as string) ?? '0',
             chainId: (metadata?.chainId as number) ?? 43114,
@@ -4977,6 +4984,7 @@ export class EvalancheMCPServer {
         case 'fetch_agent_card': {
           let card;
           if (args.url) {
+            assertSafeUrl(args.url as string, { allowHttp: true, blockPrivateNetwork: true });
             card = await this.a2aClient.fetchAgentCard(args.url as string);
           } else if (args.agentId) {
             card = await this.a2aClient.resolveAgentCardFromERC8004(args.agentId as string);
@@ -4990,6 +4998,7 @@ export class EvalancheMCPServer {
         case 'a2a_list_skills': {
           let card;
           if (args.url) {
+            assertSafeUrl(args.url as string, { allowHttp: true, blockPrivateNetwork: true });
             card = await this.a2aClient.fetchAgentCard(args.url as string);
           } else if (args.agentId) {
             card = await this.a2aClient.resolveAgentCardFromERC8004(args.agentId as string);
@@ -5002,20 +5011,35 @@ export class EvalancheMCPServer {
         }
 
         case 'a2a_submit_task': {
-          const task = await this.a2aClient.submitTask(args.url as string, {
+          const submitUrl = args.url as string;
+          assertSafeUrl(submitUrl, { allowHttp: true, blockPrivateNetwork: true });
+          // Fetch agent card to derive auth placement if the agent uses non-header auth
+          const submitCard = await this.a2aClient.fetchAgentCard(submitUrl);
+          const submitAuthPlacement = submitCard.authentication
+            ? { in: submitCard.authentication.in, name: submitCard.authentication.name }
+            : undefined;
+          const task = await this.a2aClient.submitTask(submitUrl, {
             skillId: args.skillId as string,
             input: args.input as string,
             auth: args.auth as string | undefined,
+            authPlacement: submitAuthPlacement,
           });
           result = { taskId: task.id, status: task.status };
           break;
         }
 
         case 'a2a_get_task': {
+          const getUrl = args.url as string;
+          assertSafeUrl(getUrl, { allowHttp: true, blockPrivateNetwork: true });
+          const getCard = await this.a2aClient.fetchAgentCard(getUrl);
+          const getAuthPlacement = getCard.authentication
+            ? { in: getCard.authentication.in, name: getCard.authentication.name }
+            : undefined;
           const task = await this.a2aClient.getTask(
-            args.url as string,
+            getUrl,
             args.taskId as string,
             args.auth as string | undefined,
+            getAuthPlacement,
           );
           result = {
             taskId: task.id,
@@ -5028,10 +5052,17 @@ export class EvalancheMCPServer {
         }
 
         case 'a2a_cancel_task': {
+          const cancelUrl = args.url as string;
+          assertSafeUrl(cancelUrl, { allowHttp: true, blockPrivateNetwork: true });
+          const cancelCard = await this.a2aClient.fetchAgentCard(cancelUrl);
+          const cancelAuthPlacement = cancelCard.authentication
+            ? { in: cancelCard.authentication.in, name: cancelCard.authentication.name }
+            : undefined;
           const task = await this.a2aClient.cancelTask(
-            args.url as string,
+            cancelUrl,
             args.taskId as string,
             args.auth as string | undefined,
+            cancelAuthPlacement,
           );
           result = { taskId: task.id, status: task.status };
           break;
